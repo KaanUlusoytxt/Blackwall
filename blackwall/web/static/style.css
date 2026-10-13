@@ -90,3 +90,30 @@ table.kv .empty { color: var(--muted); font-style: italic; }
 #dec-result, #jwt-out { max-height: 30vh; }
 button.mini { padding: 1px 6px; font-size: 11px; margin-left: 6px; }
 .jwt-sign input { flex: 1; }
+
+/* Intruder */
+.hint { color: var(--muted); font-size: 11px; }
+.hint code, .hint b { color: var(--fg); }
+label.inline { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+label.inline input, label.inline select { padding: 3px 6px; }
+label.inline input[type=number] { width: 64px; }
+#intr-req { width: 100%; font-family: var(--mono); resize: vertical; }
+#intr-payloads { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.pset { border: 1px solid var(--border); border-radius: 6px; padding: 8px; background: var(--panel); }
+.pset .pset-head { color: var(--accent); font-family: var(--mono); font-size: 12px; margin-bottom: 4px; }
+.pset textarea { width: 100%; font-family: var(--mono); font-size: 12px; resize: vertical; }
+.pset .gen { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
+.pset .gen input { width: 70px; padding: 3px 6px; }
+.pset .gen .wide { width: 140px; }
+.pset .gen .cnt { margin-left: auto; color: var(--muted); font-size: 11px; }
+.intr-filters { display: flex; gap: 6px; margin: 8px 0 4px; flex-wrap: wrap; align-items: center; }
+.intr-filters input[type=number] { width: 110px; }
+.intr-table-wrap { max-height: 32vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+#intr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#intr-table th { position: sticky; top: 0; background: var(--panel); cursor: pointer; user-select: none; white-space: nowrap; }
+#intr-table th:hover { color: var(--accent); }
+#intr-table td { font-family: var(--mono); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#intr-table tbody tr { cursor: pointer; }
+#intr-table tbody tr:hover { background: #1c2128; }
+#intr-table tbody tr.sel { background: #1f6feb33; }
+#intr-detail { max-height: 30vh; }

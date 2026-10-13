@@ -312,6 +312,259 @@ $("#jwt-none").onclick = () => jwtSign("none");
 $("#jwt-hs256").onclick = () => jwtSign("HS256");
 $("#jwt-copy").onclick = () => copyText($("#jwt-out").textContent);
 
+// ---- Intruder ----------------------------------------------------------
+const intr = { jobId: null, results: [], poll: null, sort: { key: "index", dir: 1 }, selIdx: null };
+const psetCache = [];
+
+function rawFromFlow(f) {
+  const line = `${f.method} ${f.path} ${f.http_version || "HTTP/1.1"}`;
+  const hdr = f.req_headers.map(([k, v]) => `${k}: ${v}`).join("\n");
+  const body = f.req_body && f.req_body.text != null ? f.req_body.text : "";
+  return line + "\n" + hdr + "\n\n" + body;
+}
+
+function countPositions(text) {
+  const m = text.match(/§[^§]*§/g);
+  return m ? m.length : 0;
+}
+
+function linesOf(text) {
+  const arr = (text || "").split("\n");
+  if (arr.length && arr[arr.length - 1] === "") arr.pop();
+  return arr;
+}
+
+function currentAttack() { return $("#intr-attack").value; }
+
+function neededEditors() {
+  const pos = countPositions($("#intr-req").value);
+  if (currentAttack() === "sniper") return pos > 0 ? 1 : 0;
+  return pos;
+}
+
+function rebuildPayloadEditors() {
+  const container = $("#intr-payloads");
+  const n = neededEditors();
+  const sniper = currentAttack() === "sniper";
+  // mevcut değerleri sakla
+  container.querySelectorAll("textarea").forEach((ta) => { psetCache[+ta.dataset.i] = ta.value; });
+  container.innerHTML = "";
+  if (n === 0) {
+    container.innerHTML = `<div class="hint">Önce istekte §...§ ile en az bir konum işaretleyin.</div>`;
+    updateEstimate();
+    return;
+  }
+  for (let i = 0; i < n; i++) {
+    const label = sniper ? "Tek liste — tüm konumlara uygulanır" : `Konum ${i + 1}`;
+    const div = document.createElement("div");
+    div.className = "pset";
+    div.innerHTML = `
+      <div class="pset-head">${label}</div>
+      <textarea data-i="${i}" rows="4" spellcheck="false" placeholder="her satır bir payload"></textarea>
+      <div class="gen">
+        <span class="hint">sayı:</span>
+        <input type="number" class="g-from" placeholder="başl" />
+        <input type="number" class="g-to" placeholder="bitiş" />
+        <input type="number" class="g-step" placeholder="adım" value="1" />
+        <button class="mini g-num">ekle</button>
+        <span class="hint">karakter seti:</span>
+        <input type="text" class="wide g-charset" placeholder="abc0-9 gibi ham" />
+        <button class="mini g-char">ekle</button>
+        <span class="cnt"></span>
+      </div>`;
+    const ta = div.querySelector("textarea");
+    ta.value = psetCache[i] || "";
+    ta.oninput = () => { psetCache[i] = ta.value; updateCount(div, ta); updateEstimate(); };
+    div.querySelector(".g-num").onclick = () => {
+      const a = parseInt(div.querySelector(".g-from").value, 10);
+      const b = parseInt(div.querySelector(".g-to").value, 10);
+      let s = parseInt(div.querySelector(".g-step").value, 10) || 1;
+      if (Number.isNaN(a) || Number.isNaN(b)) return;
+      if (s === 0) s = 1;
+      const out = [];
+      if (a <= b) for (let v = a; v <= b; v += Math.abs(s)) out.push(v);
+      else for (let v = a; v >= b; v -= Math.abs(s)) out.push(v);
+      appendLines(ta, out);
+    };
+    div.querySelector(".g-char").onclick = () => {
+      const chars = [...div.querySelector(".g-charset").value];
+      appendLines(ta, chars);
+    };
+    container.appendChild(div);
+    updateCount(div, ta);
+  }
+  updateEstimate();
+}
+
+function appendLines(ta, items) {
+  if (!items.length) return;
+  const cur = ta.value.replace(/\n+$/, "");
+  ta.value = (cur ? cur + "\n" : "") + items.join("\n");
+  psetCache[+ta.dataset.i] = ta.value;
+  const div = ta.closest(".pset");
+  updateCount(div, ta);
+  updateEstimate();
+}
+
+function updateCount(div, ta) {
+  div.querySelector(".cnt").textContent = linesOf(ta.value).length + " payload";
+}
+
+function getPayloadSets() {
+  const tas = [...$("#intr-payloads").querySelectorAll("textarea")];
+  return tas.map((ta) => linesOf(ta.value));
+}
+
+function updateEstimate() {
+  const pos = countPositions($("#intr-req").value);
+  $("#intr-poscount").textContent = pos;
+  const sets = getPayloadSets();
+  let est = 0;
+  const attack = currentAttack();
+  if (pos > 0 && sets.length) {
+    if (attack === "sniper") est = pos * (sets[0] ? sets[0].length : 0);
+    else if (attack === "pitchfork") est = sets.length >= pos ? Math.min(...sets.slice(0, pos).map((s) => s.length)) : 0;
+    else if (attack === "cluster") est = sets.length >= pos ? sets.slice(0, pos).reduce((a, s) => a * s.length, 1) : 0;
+  }
+  $("#intr-estimate").textContent = est;
+}
+
+$("#intr-load").onclick = () => {
+  if (!current) { alert("Önce History'den bir istek seçin."); return; }
+  $("#intr-req").value = rawFromFlow(current);
+  $("#intr-scheme").value = current.scheme === "http" ? "http" : "https";
+  rebuildPayloadEditors();
+};
+
+$("#intr-mark").onclick = () => {
+  const ta = $("#intr-req");
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  if (s === e) { alert("Önce istekte işaretlenecek metni seçin."); return; }
+  const v = ta.value;
+  ta.value = v.slice(0, s) + "§" + v.slice(s, e) + "§" + v.slice(e);
+  rebuildPayloadEditors();
+};
+
+$("#intr-req").oninput = debounce(rebuildPayloadEditors, 200);
+$("#intr-attack").onchange = rebuildPayloadEditors;
+
+async function intruderStart() {
+  const pos = countPositions($("#intr-req").value);
+  if (pos === 0) { alert("İstekte §...§ ile en az bir konum işaretleyin."); return; }
+  const payload = {
+    request_text: $("#intr-req").value,
+    scheme: $("#intr-scheme").value,
+    attack: currentAttack(),
+    payload_sets: getPayloadSets(),
+    concurrency: parseInt($("#intr-conc").value, 10) || 10,
+    timeout: parseFloat($("#intr-timeout").value) || 15,
+    verify_tls: $("#intr-verify").checked,
+    follow_redirects: $("#intr-follow").checked,
+  };
+  const res = await fetch("/api/intruder/start", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) { alert("Başlatılamadı: " + (data.detail || JSON.stringify(data))); return; }
+  intr.jobId = data.job_id;
+  intr.results = [];
+  intr.selIdx = null;
+  $("#intr-detail").textContent = "";
+  $("#intr-start").disabled = true;
+  $("#intr-cancel").disabled = false;
+  pollIntruder();
+}
+
+async function pollIntruder() {
+  if (!intr.jobId) return;
+  const res = await fetch("/api/intruder/status/" + intr.jobId);
+  if (!res.ok) return;
+  const data = await res.json();
+  intr.results = data.results;
+  $("#intr-progress").textContent =
+    `${data.state} — ${data.done}/${data.total}`;
+  renderIntrTable();
+  if (data.state === "running") {
+    intr.poll = setTimeout(pollIntruder, 500);
+  } else {
+    $("#intr-start").disabled = false;
+    $("#intr-cancel").disabled = true;
+  }
+}
+
+$("#intr-start").onclick = intruderStart;
+$("#intr-cancel").onclick = async () => {
+  if (!intr.jobId) return;
+  await fetch("/api/intruder/cancel/" + intr.jobId, { method: "POST" });
+};
+
+for (const th of document.querySelectorAll("#intr-table th")) {
+  th.onclick = () => {
+    const key = th.dataset.sort;
+    if (intr.sort.key === key) intr.sort.dir *= -1;
+    else intr.sort = { key, dir: 1 };
+    renderIntrTable();
+  };
+}
+["#intr-f-status", "#intr-f-min", "#intr-f-max"].forEach((s) => $(s).oninput = debounce(renderIntrTable, 150));
+$("#intr-f-err").onchange = renderIntrTable;
+
+function passFilter(r) {
+  if ($("#intr-f-err").checked && !r.error) return false;
+  const sf = $("#intr-f-status").value.trim();
+  if (sf) {
+    const prefixes = sf.split(",").map((x) => x.trim()).filter(Boolean);
+    const s = r.status != null ? String(r.status) : "";
+    if (!prefixes.some((p) => s.startsWith(p))) return false;
+  }
+  const mn = parseInt($("#intr-f-min").value, 10);
+  const mx = parseInt($("#intr-f-max").value, 10);
+  if (!Number.isNaN(mn) && (r.length == null || r.length < mn)) return false;
+  if (!Number.isNaN(mx) && (r.length == null || r.length > mx)) return false;
+  return true;
+}
+
+function renderIntrTable() {
+  const tbody = $("#intr-tbody");
+  const { key, dir } = intr.sort;
+  const rows = intr.results.filter(passFilter).slice().sort((a, b) => {
+    let x = a[key], y = b[key];
+    if (key === "payloads") { x = (x || []).join(","); y = (y || []).join(","); }
+    if (x == null) x = key === "error" ? "" : -Infinity;
+    if (y == null) y = key === "error" ? "" : -Infinity;
+    if (x < y) return -1 * dir;
+    if (x > y) return 1 * dir;
+    return 0;
+  });
+  tbody.innerHTML = "";
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    if (r.index === intr.selIdx) tr.classList.add("sel");
+    const pl = (r.payloads || []).join(" | ");
+    tr.innerHTML = `
+      <td>${r.index}</td>
+      <td title="${escapeHtml(pl)}">${escapeHtml(pl)}</td>
+      <td class="${r.error ? "s-err" : statusClass(r.status)}">${r.error ? "ERR" : (r.status ?? "—")}</td>
+      <td>${r.length ?? "—"}</td>
+      <td>${r.duration_ms != null ? Math.round(r.duration_ms) : "—"}</td>
+      <td title="${escapeHtml(r.error || "")}">${escapeHtml(r.error || "")}</td>`;
+    tr.onclick = () => showIntrDetail(r.index);
+    tbody.appendChild(tr);
+  }
+}
+
+async function showIntrDetail(index) {
+  intr.selIdx = index;
+  renderIntrTable();
+  const res = await fetch(`/api/intruder/result/${intr.jobId}/${index}`);
+  if (!res.ok) return;
+  const data = await res.json();
+  $("#intr-detail-idx").textContent = `#${index}`;
+  $("#intr-detail").textContent =
+    "=== İSTEK ===\n" + data.request + "\n\n=== YANIT ===\n" + data.response;
+}
+
 // ---- Kopyalama ---------------------------------------------------------
 async function copyText(text) {
   try {

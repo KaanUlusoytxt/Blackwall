@@ -36,6 +36,7 @@
         <button class="tab" data-pane="resp">Yanıt</button>
         <button class="tab" data-pane="repeater">Repeater</button>
         <button class="tab" data-pane="inspector">Inspector</button>
+        <button class="tab" data-pane="intruder">Intruder</button>
         <button class="tab" data-pane="decoder">Decoder</button>
         <button class="tab" data-pane="jwt">JWT</button>
       </div>
@@ -82,6 +83,65 @@
           <h4>İstek başlıkları</h4>
           <table class="kv" id="insp-headers"><tbody></tbody></table>
         </div>
+      </div>
+
+      <!-- Intruder -->
+      <div class="pane" id="pane-intruder">
+        <div class="rep-row">
+          <button id="intr-load">⟵ Seçili isteği yükle</button>
+          <select id="intr-scheme"><option>https</option><option>http</option></select>
+          <span class="hint">Payload konumlarını <code>§...§</code> ile işaretleyin · <button id="intr-mark" class="mini">seçimi işaretle</button></span>
+        </div>
+        <label class="lbl">Ham istek</label>
+        <textarea id="intr-req" rows="9" spellcheck="false" placeholder="GET /search?q=§test§ HTTP/1.1&#10;Host: example.com&#10;&#10;"></textarea>
+
+        <div class="rep-row">
+          <label class="inline">Saldırı:
+            <select id="intr-attack">
+              <option value="sniper">sniper (tek liste, her konuma sırayla)</option>
+              <option value="pitchfork">pitchfork (konum başına liste, eşli)</option>
+              <option value="cluster">cluster bomb (tüm kombinasyonlar)</option>
+            </select>
+          </label>
+          <label class="inline">eşzamanlılık <input id="intr-conc" type="number" value="10" min="1" max="100" /></label>
+          <label class="inline">timeout(s) <input id="intr-timeout" type="number" value="15" min="1" /></label>
+        </div>
+        <div class="rep-opts">
+          <label><input id="intr-verify" type="checkbox" /> TLS doğrula</label>
+          <label><input id="intr-follow" type="checkbox" /> yönlendirme izle</label>
+          <span class="hint">Konum sayısı: <b id="intr-poscount">0</b> · tahmini istek: <b id="intr-estimate">0</b></span>
+        </div>
+
+        <label class="lbl">Payload listeleri</label>
+        <div id="intr-payloads"></div>
+
+        <div class="rep-row">
+          <button id="intr-start">Saldırıyı başlat</button>
+          <button id="intr-cancel" class="danger" disabled>İptal</button>
+          <span id="intr-progress" class="hint"></span>
+        </div>
+
+        <div class="intr-filters">
+          <input id="intr-f-status" placeholder="status filtre (ör. 200 veya 2,3)" />
+          <input id="intr-f-min" type="number" placeholder="min uzunluk" />
+          <input id="intr-f-max" type="number" placeholder="max uzunluk" />
+          <label class="inline"><input id="intr-f-err" type="checkbox" /> sadece hatalılar</label>
+        </div>
+        <div class="intr-table-wrap">
+          <table id="intr-table">
+            <thead><tr>
+              <th data-sort="index">#</th>
+              <th data-sort="payloads">payload(lar)</th>
+              <th data-sort="status">status</th>
+              <th data-sort="length">uzunluk</th>
+              <th data-sort="duration_ms">ms</th>
+              <th data-sort="error">hata</th>
+            </tr></thead>
+            <tbody id="intr-tbody"></tbody>
+          </table>
+        </div>
+        <label class="lbl">Tam yanıt <span id="intr-detail-idx" class="hint"></span></label>
+        <pre id="intr-detail" class="raw"></pre>
       </div>
 
       <!-- Decoder -->

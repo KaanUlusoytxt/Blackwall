@@ -5,10 +5,12 @@
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
+import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
@@ -17,6 +19,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from blackwall import db, tools
+
+# Intruder sınırları
+MAX_REQUESTS = 10_000      # bir saldırıda üretilecek toplam istek üst sınırı
+MAX_CONCURRENCY = 100
+MAX_STORED_BODY = 200_000  # saklanan yanıt gövdesi (karakter)
+MAX_JOBS = 20              # bellekte tutulan iş sayısı
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -196,6 +204,179 @@ def api_jwt_sign(reqdata: JwtSignRequest):
         )
     except Exception as exc:
         raise HTTPException(400, f"İmzalama başarısız: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Intruder
+# ---------------------------------------------------------------------------
+# İş durumları bellekte tutulur (kalıcılık gerekmez; Faz 1 kapsamı).
+INTRUDER_JOBS: dict[str, dict] = {}
+
+
+class IntruderStart(BaseModel):
+    request_text: str
+    scheme: str = "https"
+    attack: str = "sniper"               # sniper | pitchfork | cluster
+    payload_sets: list[list[str]] = Field(default_factory=list)
+    concurrency: int = 10
+    timeout: float = 15.0
+    verify_tls: bool = False
+    follow_redirects: bool = False
+
+
+def _prune_jobs() -> None:
+    if len(INTRUDER_JOBS) <= MAX_JOBS:
+        return
+    oldest = sorted(INTRUDER_JOBS.items(), key=lambda kv: kv[1]["created"])
+    for jid, _ in oldest[: len(INTRUDER_JOBS) - MAX_JOBS]:
+        INTRUDER_JOBS.pop(jid, None)
+
+
+async def _run_intruder(job_id: str) -> None:
+    job = INTRUDER_JOBS[job_id]
+    sem = asyncio.Semaphore(job["concurrency"])
+    segments = job["segments"]
+    cases: list[list[str]] = job["cases"]
+
+    async with httpx.AsyncClient(
+        verify=job["verify_tls"],
+        follow_redirects=job["follow_redirects"],
+        timeout=job["timeout"],
+    ) as client:
+
+        async def one(index: int, values: list[str]) -> None:
+            async with sem:
+                if job["state"] == "cancelled":
+                    return
+                concrete = tools.build_request(segments, values)
+                result: dict[str, Any] = {
+                    "index": index,
+                    "payloads": values,
+                    "status": None,
+                    "length": None,
+                    "duration_ms": None,
+                    "error": None,
+                }
+                started = time.perf_counter()
+                try:
+                    method, url, headers, body = tools.parse_http(concrete, job["scheme"])
+                    # Host ve Content-Length httpx tarafından yeniden hesaplanır.
+                    send_headers = [
+                        (k, v) for k, v in headers
+                        if k.lower() not in ("host", "content-length")
+                    ]
+                    resp = await client.request(
+                        method, url, headers=send_headers,
+                        content=body if body else None,
+                    )
+                    dur = (time.perf_counter() - started) * 1000.0
+                    text = resp.text
+                    truncated = len(text) > MAX_STORED_BODY
+                    if truncated:
+                        text = text[:MAX_STORED_BODY]
+                    result.update(
+                        status=resp.status_code,
+                        length=len(resp.content),
+                        duration_ms=dur,
+                    )
+                    status_line = (
+                        f"{resp.http_version} {resp.status_code} {resp.reason_phrase}"
+                    )
+                    hdrs = "\n".join(f"{k}: {v}" for k, v in resp.headers.items())
+                    job["responses"][index] = (
+                        status_line + "\n" + hdrs + "\n\n" + text
+                        + ("\n\n[... kısaltıldı ...]" if truncated else "")
+                    )
+                    job["requests"][index] = concrete
+                except Exception as exc:
+                    result["error"] = f"{type(exc).__name__}: {exc}"
+                    result["duration_ms"] = (time.perf_counter() - started) * 1000.0
+                    job["responses"][index] = f"HATA: {result['error']}"
+                    job["requests"][index] = concrete
+                finally:
+                    job["results"].append(result)
+                    job["done"] += 1
+
+        await asyncio.gather(*(one(i, v) for i, v in enumerate(cases)))
+
+    if job["state"] != "cancelled":
+        job["state"] = "done"
+
+
+@app.post("/api/intruder/start")
+async def api_intruder_start(cfg: IntruderStart):
+    segments, defaults = tools.parse_positions(cfg.request_text)
+    try:
+        cases = tools.build_cases(cfg.attack, defaults, cfg.payload_sets)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    if not cases:
+        raise HTTPException(400, "Üretilecek istek yok (payload listeleri boş olabilir)")
+    if len(cases) > MAX_REQUESTS:
+        raise HTTPException(
+            400,
+            f"Toplam istek sayısı {len(cases)}, üst sınır {MAX_REQUESTS}. "
+            "Payload listelerini küçültün.",
+        )
+
+    concurrency = max(1, min(cfg.concurrency, MAX_CONCURRENCY))
+    job_id = uuid.uuid4().hex[:12]
+    INTRUDER_JOBS[job_id] = {
+        "created": time.time(),
+        "state": "running",
+        "attack": cfg.attack,
+        "scheme": cfg.scheme,
+        "segments": segments,
+        "cases": cases,
+        "concurrency": concurrency,
+        "timeout": cfg.timeout,
+        "verify_tls": cfg.verify_tls,
+        "follow_redirects": cfg.follow_redirects,
+        "total": len(cases),
+        "done": 0,
+        "results": [],
+        "responses": {},
+        "requests": {},
+    }
+    _prune_jobs()
+    asyncio.create_task(_run_intruder(job_id))
+    return {"job_id": job_id, "total": len(cases), "concurrency": concurrency}
+
+
+@app.get("/api/intruder/status/{job_id}")
+def api_intruder_status(job_id: str):
+    job = INTRUDER_JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(404, "İş bulunamadı")
+    return {
+        "state": job["state"],
+        "total": job["total"],
+        "done": job["done"],
+        "attack": job["attack"],
+        "results": job["results"],
+    }
+
+
+@app.post("/api/intruder/cancel/{job_id}")
+def api_intruder_cancel(job_id: str):
+    job = INTRUDER_JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(404, "İş bulunamadı")
+    if job["state"] == "running":
+        job["state"] = "cancelled"
+    return {"ok": True, "state": job["state"]}
+
+
+@app.get("/api/intruder/result/{job_id}/{index}")
+def api_intruder_result(job_id: str, index: int):
+    job = INTRUDER_JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(404, "İş bulunamadı")
+    return {
+        "request": job["requests"].get(index, ""),
+        "response": job["responses"].get(index, "(yanıt yok)"),
+    }
 
 
 # ---------------------------------------------------------------------------

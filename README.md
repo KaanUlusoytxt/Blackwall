@@ -139,6 +139,26 @@ curl -x http://127.0.0.1:8080 \
     - *yönlendirme izle*: 3xx yanıtlarını otomatik takip eder.
   - **Inspector** sekmesi *(salt-okunur)*: seçili isteğin query parametrelerini,
     cookie'lerini ve başlıklarını ayrıştırıp okunur tablolarda listeler.
+  - **Intruder** sekmesi: otomatik payload saldırıları (httpx ile).
+    - **Seçili isteği yükle** ile History/Repeater'daki isteği ham olarak alın
+      (ya da elle yapıştırın). Payload konacak yerleri `§...§` ile işaretleyin —
+      metni seçip **seçimi işaretle**'ye basmak da aynısını yapar. `http/https`
+      şemasını seçin.
+    - **Saldırı tipleri:**
+      - *sniper* — tek liste; her konuma sırayla uygulanır (toplam = konum × liste).
+      - *pitchfork* — konum başına bir liste; listeler eşli ilerler (toplam = en kısa liste).
+      - *cluster bomb* — konum başına bir liste; tüm kombinasyonlar (toplam = çarpım).
+    - **Payload listeleri:** her kutuya satır satır yapıştırın; ya da üreteçlerle
+      ekleyin — *sayı aralığı* (başlangıç/bitiş/adım) ve *karakter seti* (her
+      karakter bir payload).
+    - *eşzamanlılık* ayarlanabilir (1–100, varsayılan 10). Toplam istek üst sınırı
+      **10 000**'dir. **Başlat** / **İptal** ile yönetilir, ilerleme canlı görünür.
+    - **Sonuç tablosu:** payload(lar), status, yanıt uzunluğu, süre (ms), hata.
+      Her kolon başlığına tıklayarak sıralanır; status (ör. `200` veya `2,3`
+      önekleri), min/max uzunluk ve "sadece hatalılar" ile filtrelenir. Bir satıra
+      tıklayınca gönderilen istek ve tam yanıt aşağıda görünür.
+    - Tamamen yerel/offline; istekler doğrudan hedefe httpx ile gider (proxy'den
+      geçmez).
   - **Decoder** sekmesi: girdiye üst üste **katmanlar** uygulayın —
     base64 (standart ve url-safe), url, HTML entity, hex, ascii (ondalık kod)
     encode/decode; ayrıca md5 / sha1 / sha256 hash. Her katmanın ara çıktısı

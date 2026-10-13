@@ -9,7 +9,9 @@ import binascii
 import hashlib
 import hmac
 import html
+import itertools
 import json
+import re
 import urllib.parse
 from typing import Any
 
@@ -154,3 +156,107 @@ def jwt_sign(payload: Any, *, alg: str, secret: str = "", extra_header: dict | N
         return {"token": f"{signing_input}.{_b64url_encode(sig)}", "header": header}
 
     raise ValueError(f"desteklenmeyen alg: {alg} (none veya HS256)")
+
+
+# ---------------------------------------------------------------------------
+# Intruder — §...§ işaretli konumlara payload yerleştirme
+# ---------------------------------------------------------------------------
+
+_MARKER_RE = re.compile(r"§([^§]*)§")
+
+
+def parse_positions(text: str) -> tuple[list[str], list[str]]:
+    """Ham isteği §...§ işaretlerinden ayırır.
+
+    Döndürür:
+      segments: n+1 adet düz metin parçası
+      defaults: n adet, her işaretin içindeki varsayılan değer
+    build_request(segments, values) ile yeniden birleştirilir.
+    """
+    segments: list[str] = []
+    defaults: list[str] = []
+    last = 0
+    for m in _MARKER_RE.finditer(text):
+        segments.append(text[last : m.start()])
+        defaults.append(m.group(1))
+        last = m.end()
+    segments.append(text[last:])
+    return segments, defaults
+
+
+def build_request(segments: list[str], values: list[str]) -> str:
+    """segments (n+1) ve values (n) birleştirip somut isteği üretir."""
+    out = [segments[0]]
+    for i, val in enumerate(values):
+        out.append(val)
+        out.append(segments[i + 1])
+    return "".join(out)
+
+
+def build_cases(
+    attack: str, defaults: list[str], payload_sets: list[list[str]]
+) -> list[list[str]]:
+    """Saldırı tipine göre her isteğin konum değerlerini (uzunluk = konum sayısı) üretir."""
+    n = len(defaults)
+    if n == 0:
+        raise ValueError("İstekte §...§ ile işaretlenmiş konum yok")
+
+    if attack == "sniper":
+        if not payload_sets or not payload_sets[0]:
+            raise ValueError("sniper için bir payload listesi gerekli")
+        lst = payload_sets[0]
+        cases: list[list[str]] = []
+        for pos in range(n):
+            for p in lst:
+                values = list(defaults)
+                values[pos] = p
+                cases.append(values)
+        return cases
+
+    if attack == "pitchfork":
+        if len(payload_sets) < n:
+            raise ValueError(f"pitchfork için {n} liste gerekli (konum başına bir)")
+        k = min(len(payload_sets[i]) for i in range(n))
+        return [[payload_sets[i][j] for i in range(n)] for j in range(k)]
+
+    if attack == "cluster":
+        if len(payload_sets) < n:
+            raise ValueError(f"cluster bomb için {n} liste gerekli (konum başına bir)")
+        lists = [payload_sets[i] for i in range(n)]
+        if any(len(x) == 0 for x in lists):
+            raise ValueError("cluster bomb için her liste en az bir payload içermeli")
+        return [list(combo) for combo in itertools.product(*lists)]
+
+    raise ValueError(f"bilinmeyen saldırı tipi: {attack}")
+
+
+def parse_http(text: str, scheme: str) -> tuple[str, str, list[tuple[str, str]], bytes]:
+    """Somut ham HTTP isteğini method, url, headers, body'ye ayırır."""
+    text = text.replace("\r\n", "\n")
+    head, sep, body = text.partition("\n\n")
+    lines = head.split("\n")
+    if not lines or not lines[0].strip():
+        raise ValueError("boş istek satırı")
+    parts = lines[0].split(" ")
+    method = parts[0].strip()
+    target = parts[1].strip() if len(parts) > 1 else "/"
+
+    headers: list[tuple[str, str]] = []
+    host = None
+    for ln in lines[1:]:
+        if not ln.strip() or ":" not in ln:
+            continue
+        k, v = ln.split(":", 1)
+        k, v = k.strip(), v.strip()
+        headers.append((k, v))
+        if k.lower() == "host":
+            host = v
+
+    if target.startswith(("http://", "https://")):
+        url = target
+    else:
+        if not host:
+            raise ValueError("Host başlığı yok ve hedef mutlak URL değil")
+        url = f"{scheme}://{host}{target}"
+
+    return method, url, headers, body.encode("utf-8")
