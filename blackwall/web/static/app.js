@@ -61,6 +61,7 @@ async function selectFlow(id) {
     if (tr.firstElementChild && tr.firstElementChild.textContent == String(id)) tr.classList.add("sel");
   }
   loadRepeaterFrom(current);
+  renderInspector(current);
 }
 
 function headersToText(headers) {
@@ -168,6 +169,160 @@ $("#clear").onclick = async () => {
 function debounce(fn, ms) {
   let t;
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+// ---- Inspector ---------------------------------------------------------
+function findHeader(headers, name) {
+  const low = name.toLowerCase();
+  return headers.filter(([k]) => k.toLowerCase() === low).map(([, v]) => v);
+}
+
+function kvRows(tbodySel, pairs) {
+  const tbody = document.querySelector(tbodySel + " tbody");
+  tbody.innerHTML = "";
+  if (!pairs.length) {
+    tbody.innerHTML = `<tr><td class="empty" colspan="2">—</td></tr>`;
+    return;
+  }
+  for (const [k, v] of pairs) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="k">${escapeHtml(k)}</td><td>${escapeHtml(v)}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function parseQuery(url) {
+  try {
+    const u = new URL(url);
+    return [...u.searchParams.entries()];
+  } catch { return []; }
+}
+
+function parseCookies(headers) {
+  const out = [];
+  for (const raw of findHeader(headers, "cookie")) {
+    for (const part of raw.split(";")) {
+      const t = part.trim();
+      if (!t) continue;
+      const idx = t.indexOf("=");
+      if (idx === -1) out.push([t, ""]);
+      else out.push([t.slice(0, idx).trim(), t.slice(idx + 1).trim()]);
+    }
+  }
+  return out;
+}
+
+function renderInspector(f) {
+  const empty = $("#insp-empty"), content = $("#insp-content");
+  if (!f) { empty.hidden = false; content.hidden = true; return; }
+  empty.hidden = true; content.hidden = false;
+  $("#insp-line").textContent = `${f.method} ${f.url}`;
+  kvRows("#insp-query", parseQuery(f.url));
+  kvRows("#insp-cookies", parseCookies(f.req_headers));
+  kvRows("#insp-headers", f.req_headers);
+}
+
+// ---- Decoder -----------------------------------------------------------
+let decPipeline = [];
+
+function renderPipeline(steps) {
+  const ol = $("#dec-pipeline");
+  ol.innerHTML = "";
+  decPipeline.forEach((op, i) => {
+    const step = steps && steps[i];
+    const li = document.createElement("li");
+    const out = step ? (step.error ? step.error : step.output) : "";
+    li.innerHTML = `
+      <span class="idx">${i + 1}.</span>
+      <span class="op">${op}</span>
+      <span class="out ${step && step.error ? "err" : ""}" title="${escapeHtml(out)}">${escapeHtml(truncate(out, 120))}</span>
+      <button data-i="${i}">✕</button>`;
+    li.querySelector("button").onclick = () => { decPipeline.splice(i, 1); runDecoder(); };
+    ol.appendChild(li);
+  });
+}
+
+function truncate(s, n) { s = String(s ?? ""); return s.length > n ? s.slice(0, n) + "…" : s; }
+
+async function runDecoder() {
+  const res = await fetch("/api/decoder/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input: $("#dec-input").value, ops: decPipeline }),
+  });
+  const data = await res.json();
+  renderPipeline(data.steps);
+  const last = data.steps[data.steps.length - 1];
+  $("#dec-result").textContent =
+    data.result != null ? data.result : (last && last.error ? "HATA: " + last.error : "");
+}
+
+$("#dec-add").onclick = () => { decPipeline.push($("#dec-op").value); runDecoder(); };
+$("#dec-clear").onclick = () => { decPipeline = []; runDecoder(); };
+$("#dec-input").oninput = debounce(runDecoder, 200);
+$("#dec-copy").onclick = () => copyText($("#dec-result").textContent);
+
+// ---- JWT ---------------------------------------------------------------
+async function jwtDecode() {
+  const token = $("#jwt-token").value.trim();
+  if (!token) return;
+  const res = await fetch("/api/jwt/decode", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  const data = await res.json();
+  if (!res.ok) { $("#jwt-out").textContent = "HATA: " + (data.detail || JSON.stringify(data)); return; }
+  $("#jwt-header").value = pretty(data.header);
+  $("#jwt-payload").value = pretty(data.payload);
+  $("#jwt-out").textContent =
+    `alg: ${data.alg}\nbölüm sayısı: ${data.parts}\nimza (b64url): ${data.signature || "(yok)"}`;
+}
+
+function pretty(v) {
+  if (typeof v === "string") return v;
+  try { return JSON.stringify(v, null, 2); } catch { return String(v); }
+}
+
+function parseJsonField(sel, label) {
+  const txt = $(sel).value.trim();
+  try { return JSON.parse(txt); }
+  catch (e) { throw new Error(`${label} geçerli JSON değil: ${e.message}`); }
+}
+
+async function jwtSign(alg) {
+  try {
+    const payload = parseJsonField("#jwt-payload", "Payload");
+    let header = {};
+    try { header = parseJsonField("#jwt-header", "Header"); } catch { header = {}; }
+    const res = await fetch("/api/jwt/sign", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payload, alg, secret: $("#jwt-secret").value, header }),
+    });
+    const data = await res.json();
+    if (!res.ok) { $("#jwt-out").textContent = "HATA: " + (data.detail || JSON.stringify(data)); return; }
+    $("#jwt-out").textContent = data.token;
+    $("#jwt-token").value = data.token;
+  } catch (e) {
+    $("#jwt-out").textContent = "HATA: " + e.message;
+  }
+}
+
+$("#jwt-decode").onclick = jwtDecode;
+$("#jwt-none").onclick = () => jwtSign("none");
+$("#jwt-hs256").onclick = () => jwtSign("HS256");
+$("#jwt-copy").onclick = () => copyText($("#jwt-out").textContent);
+
+// ---- Kopyalama ---------------------------------------------------------
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Güvenli bağlam değilse fallback
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch {}
+    ta.remove();
+  }
 }
 
 // Otomatik yenileme

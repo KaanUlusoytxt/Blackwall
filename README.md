@@ -137,6 +137,16 @@ curl -x http://127.0.0.1:8080 \
     - *TLS doğrula*: kapalıyken sunucu sertifikası doğrulanmaz (geçersiz/self-signed
       hedefler için pratik). Açıkken normal doğrulama yapılır.
     - *yönlendirme izle*: 3xx yanıtlarını otomatik takip eder.
+  - **Inspector** sekmesi *(salt-okunur)*: seçili isteğin query parametrelerini,
+    cookie'lerini ve başlıklarını ayrıştırıp okunur tablolarda listeler.
+  - **Decoder** sekmesi: girdiye üst üste **katmanlar** uygulayın —
+    base64 (standart ve url-safe), url, HTML entity, hex, ascii (ondalık kod)
+    encode/decode; ayrıca md5 / sha1 / sha256 hash. Her katmanın ara çıktısı
+    sırayla görünür; sondaki sonuç kopyalanabilir. Tamamen offline (yerel hesaplama).
+  - **JWT** sekmesi: token yapıştırıp **Çöz**'e basın → header/payload dolar.
+    Düzenleyip **alg:none olarak üret** ya da bir secret girip **HS256 imzala**.
+    Çıkan token kopyalanabilir. HMAC yerel olarak (hmac/hashlib) hesaplanır,
+    dış servis kullanılmaz.
 
 ---
 

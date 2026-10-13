@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from blackwall import db
+from blackwall import db, tools
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -141,6 +141,61 @@ def api_repeater_send(reqdata: RepeaterRequest):
     finally:
         conn.close()
     return detail
+
+
+# ---------------------------------------------------------------------------
+# Decoder
+# ---------------------------------------------------------------------------
+class DecoderRequest(BaseModel):
+    input: str = ""
+    ops: list[str] = Field(default_factory=list)
+
+
+@app.get("/api/decoder/ops")
+def api_decoder_ops():
+    return {"ops": sorted(tools.DECODER_OPS)}
+
+
+@app.post("/api/decoder/run")
+def api_decoder_run(reqdata: DecoderRequest):
+    steps = tools.run_pipeline(reqdata.input, reqdata.ops)
+    result = steps[-1]["output"] if steps and steps[-1]["error"] is None else None
+    return {"steps": steps, "result": result}
+
+
+# ---------------------------------------------------------------------------
+# JWT
+# ---------------------------------------------------------------------------
+class JwtDecodeRequest(BaseModel):
+    token: str
+
+
+class JwtSignRequest(BaseModel):
+    payload: object
+    alg: str = "HS256"           # "none" | "HS256"
+    secret: str = ""
+    header: Optional[dict] = None  # opsiyonel ek header alanları
+
+
+@app.post("/api/jwt/decode")
+def api_jwt_decode(reqdata: JwtDecodeRequest):
+    try:
+        return tools.jwt_decode(reqdata.token)
+    except Exception as exc:
+        raise HTTPException(400, f"JWT çözülemedi: {exc}")
+
+
+@app.post("/api/jwt/sign")
+def api_jwt_sign(reqdata: JwtSignRequest):
+    try:
+        return tools.jwt_sign(
+            reqdata.payload,
+            alg=reqdata.alg,
+            secret=reqdata.secret,
+            extra_header=reqdata.header,
+        )
+    except Exception as exc:
+        raise HTTPException(400, f"İmzalama başarısız: {exc}")
 
 
 # ---------------------------------------------------------------------------

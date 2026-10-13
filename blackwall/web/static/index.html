@@ -35,6 +35,9 @@
         <button class="tab active" data-pane="req">İstek</button>
         <button class="tab" data-pane="resp">Yanıt</button>
         <button class="tab" data-pane="repeater">Repeater</button>
+        <button class="tab" data-pane="inspector">Inspector</button>
+        <button class="tab" data-pane="decoder">Decoder</button>
+        <button class="tab" data-pane="jwt">JWT</button>
       </div>
 
       <div class="pane active" id="pane-req">
@@ -65,6 +68,80 @@
         <textarea id="rep-body" spellcheck="false" rows="8"></textarea>
         <label class="lbl">Yanıt</label>
         <pre id="rep-resp" class="raw"></pre>
+      </div>
+
+      <!-- Inspector -->
+      <div class="pane" id="pane-inspector">
+        <div id="insp-empty" class="muted-note">History ya da Repeater'dan bir istek seçin.</div>
+        <div id="insp-content" hidden>
+          <div class="insp-head" id="insp-line"></div>
+          <h4>Query parametreleri</h4>
+          <table class="kv" id="insp-query"><tbody></tbody></table>
+          <h4>Cookie'ler</h4>
+          <table class="kv" id="insp-cookies"><tbody></tbody></table>
+          <h4>İstek başlıkları</h4>
+          <table class="kv" id="insp-headers"><tbody></tbody></table>
+        </div>
+      </div>
+
+      <!-- Decoder -->
+      <div class="pane" id="pane-decoder">
+        <label class="lbl">Girdi</label>
+        <textarea id="dec-input" rows="4" spellcheck="false"></textarea>
+        <div class="dec-add">
+          <select id="dec-op">
+            <optgroup label="Base64">
+              <option value="base64-encode">base64 encode</option>
+              <option value="base64-decode">base64 decode</option>
+              <option value="base64url-encode">base64url encode</option>
+              <option value="base64url-decode">base64url decode</option>
+            </optgroup>
+            <optgroup label="URL">
+              <option value="url-encode">url encode</option>
+              <option value="url-decode">url decode</option>
+            </optgroup>
+            <optgroup label="HTML">
+              <option value="html-encode">html entity encode</option>
+              <option value="html-decode">html entity decode</option>
+            </optgroup>
+            <optgroup label="Hex / ASCII">
+              <option value="hex-encode">hex encode</option>
+              <option value="hex-decode">hex decode</option>
+              <option value="ascii-encode">ascii (ondalık) encode</option>
+              <option value="ascii-decode">ascii (ondalık) decode</option>
+            </optgroup>
+            <optgroup label="Hash">
+              <option value="md5">md5</option>
+              <option value="sha1">sha1</option>
+              <option value="sha256">sha256</option>
+            </optgroup>
+          </select>
+          <button id="dec-add">+ katman ekle</button>
+          <button id="dec-clear" class="danger">katmanları temizle</button>
+        </div>
+        <ol id="dec-pipeline" class="pipeline"></ol>
+        <label class="lbl">Sonuç <button id="dec-copy" class="mini">kopyala</button></label>
+        <pre id="dec-result" class="raw"></pre>
+      </div>
+
+      <!-- JWT -->
+      <div class="pane" id="pane-jwt">
+        <label class="lbl">Token</label>
+        <textarea id="jwt-token" rows="3" spellcheck="false" placeholder="xxxxx.yyyyy.zzzzz"></textarea>
+        <div class="rep-row">
+          <button id="jwt-decode">Çöz</button>
+        </div>
+        <label class="lbl">Header</label>
+        <textarea id="jwt-header" rows="4" spellcheck="false">{"alg":"HS256","typ":"JWT"}</textarea>
+        <label class="lbl">Payload</label>
+        <textarea id="jwt-payload" rows="6" spellcheck="false">{}</textarea>
+        <div class="rep-row jwt-sign">
+          <button id="jwt-none">alg:none olarak üret</button>
+          <input id="jwt-secret" type="text" placeholder="HS256 secret" />
+          <button id="jwt-hs256">HS256 imzala</button>
+        </div>
+        <label class="lbl">Çıkan token <button id="jwt-copy" class="mini">kopyala</button></label>
+        <pre id="jwt-out" class="raw"></pre>
       </div>
     </section>
   </main>
