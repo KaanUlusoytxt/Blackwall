@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Blackwall</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">⬛ Blackwall</div>
+    <div class="controls">
+      <input id="search" type="search" placeholder="url / host / method filtrele…" />
+      <label class="auto"><input id="autorefresh" type="checkbox" checked /> otomatik yenile</label>
+      <button id="refresh">Yenile</button>
+      <button id="clear" class="danger">Temizle</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="history">
+      <table id="flows">
+        <thead>
+          <tr>
+            <th>#</th><th>Zaman</th><th>Kaynak</th><th>Method</th>
+            <th>Host</th><th>Path</th><th>Durum</th><th>Boyut</th><th>ms</th>
+          </tr>
+        </thead>
+        <tbody id="flows-body"></tbody>
+      </table>
+    </section>
+
+    <section class="detail">
+      <div class="tabs">
+        <button class="tab active" data-pane="req">İstek</button>
+        <button class="tab" data-pane="resp">Yanıt</button>
+        <button class="tab" data-pane="repeater">Repeater</button>
+      </div>
+
+      <div class="pane active" id="pane-req">
+        <pre id="req-view" class="raw">Soldan bir akış seçin.</pre>
+      </div>
+
+      <div class="pane" id="pane-resp">
+        <pre id="resp-view" class="raw"></pre>
+      </div>
+
+      <div class="pane" id="pane-repeater">
+        <div class="rep-row">
+          <select id="rep-method">
+            <option>GET</option><option>POST</option><option>PUT</option>
+            <option>PATCH</option><option>DELETE</option><option>HEAD</option>
+            <option>OPTIONS</option>
+          </select>
+          <input id="rep-url" type="text" placeholder="https://hedef/path" />
+          <button id="rep-send">Gönder</button>
+        </div>
+        <div class="rep-opts">
+          <label><input id="rep-verify" type="checkbox" /> TLS doğrula</label>
+          <label><input id="rep-follow" type="checkbox" /> yönlendirme izle</label>
+        </div>
+        <label class="lbl">Başlıklar (her satır <code>İsim: değer</code>)</label>
+        <textarea id="rep-headers" spellcheck="false" rows="8"></textarea>
+        <label class="lbl">Gövde</label>
+        <textarea id="rep-body" spellcheck="false" rows="8"></textarea>
+        <label class="lbl">Yanıt</label>
+        <pre id="rep-resp" class="raw"></pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

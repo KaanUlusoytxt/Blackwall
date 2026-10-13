@@ -1,0 +1,22 @@
+# Yakalanan trafik / veritabanı
+*.db
+*.db-wal
+*.db-shm
+
+# mitmproxy CA ve sertifikalar
+*.pem
+*.cer
+*.p12
+.mitmproxy/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Ortam / editör
+.env
+.vscode/
+.idea/
