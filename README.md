@@ -216,9 +216,13 @@ curl -x http://127.0.0.1:8080 \
       - `LF` — satır sonları `\n` kalır (bare-LF testleri).
       - `escape` — gerçek satır sonları yok sayılır; byte'ları `\r \n \t \0 \xHH`
         ile birebir yazarsınız (tam kontrol; null byte, bare CR vb.).
-    - **İki istek** aynı socket'te sıralı gönderilir (2. istek opsiyonel) —
-      CL.TE / TE.CL desync testleri için şarttır. İkinci istekten önce gecikme
-      (ms) ayarlanabilir.
+    - **İki istek** (2. opsiyonel) aynı socket'e **pipeline** olarak yazılır:
+      ilk yanıt beklenmeden art arda gönderilir, sonra gelen TÜM veri okunup
+      yanıtlara ayrılır (Content-Length / Transfer-Encoding: chunked / EOF'a göre).
+      Böylece ilk yanıtta `Connection: close` olsa bile ikinci yanıt (ör. 404)
+      yakalanır — CL.TE / TE.CL desync testleri için şarttır. İkinci istekten önce
+      gecikme (ms) ayarlanabilir. Tek istek gönderiminde eski davranış korunur
+      (gönder → yanıtı oku).
     - **timeout** (toplam) ve **read-idle** (yanıt bitti saymadan önce beklenen
       boşta süre) ayarlanabilir. Yanıt **ham byte** olarak (latin-1) ya da **hex
       dump** gösterilir; gönderilen ham byte'lar da (çerçevelemeyi doğrulamak için)

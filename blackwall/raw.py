@@ -114,6 +114,80 @@ def _recv_response(sock: socket.socket, total_timeout: float, read_idle: float) 
     return b"".join(chunks)
 
 
+def _header_dict(block: bytes) -> dict[str, str]:
+    """Yanıt başlık bloğunu (status satırı hariç) küçük harfli dict'e çevirir."""
+    out: dict[str, str] = {}
+    for line in block.split(b"\r\n")[1:]:
+        if b":" not in line:
+            continue
+        k, _, v = line.partition(b":")
+        out[k.strip().lower().decode("latin-1")] = v.strip().decode("latin-1")
+    return out
+
+
+def _chunked_end(data: bytes, start: int) -> Optional[int]:
+    """chunked gövdenin bittiği indeksi döndürür (son 0-chunk + sonlandırıcı sonrası)."""
+    i, n = start, len(data)
+    while i < n:
+        le = data.find(b"\r\n", i)
+        if le == -1:
+            return None
+        size_field = data[i:le].split(b";", 1)[0].strip()
+        try:
+            size = int(size_field, 16)
+        except ValueError:
+            return None
+        i = le + 2
+        if size == 0:
+            # trailer'lar varsa boş satıra kadar tüket
+            while i < n:
+                le2 = data.find(b"\r\n", i)
+                if le2 == -1:
+                    return None
+                if le2 == i:          # boş satır → chunked sonu
+                    return i + 2
+                i = le2 + 2
+            return None
+        i += size + 2                 # chunk verisi + ardından gelen \r\n
+    return None
+
+
+def split_http_responses(data: bytes) -> list[bytes]:
+    """Tek socket'ten birbirine eklenmiş HTTP/1.1 yanıtlarını ayrı ayrı döndürür.
+
+    Gövde uzunluğu Transfer-Encoding: chunked, yoksa Content-Length, o da yoksa
+    EOF'a kadar (yalnızca son yanıt) kabul edilir.
+    """
+    responses: list[bytes] = []
+    i, n = 0, len(data)
+    while i < n:
+        hdr_end = data.find(b"\r\n\r\n", i)
+        if hdr_end == -1:
+            responses.append(data[i:])        # eksik/ham kalan
+            break
+        headers = _header_dict(data[i:hdr_end])
+        body_start = hdr_end + 4
+        te = headers.get("transfer-encoding", "").lower()
+        cl = headers.get("content-length")
+        if "chunked" in te:
+            end = _chunked_end(data, body_start)
+            if end is None:
+                responses.append(data[i:]); break
+            responses.append(data[i:end]); i = end
+        elif cl is not None:
+            try:
+                length = int(cl)
+            except ValueError:
+                length = 0
+            end = body_start + length
+            if end > n:
+                responses.append(data[i:]); break   # eksik gövde
+            responses.append(data[i:end]); i = end
+        else:
+            responses.append(data[i:]); break        # CL/chunked yok → EOF'a kadar
+    return responses
+
+
 def send_raw(
     *,
     host: str,
@@ -125,7 +199,13 @@ def send_raw(
     delay_ms: int = 0,
     sni: Optional[str] = None,
 ) -> dict:
-    """Tek socket açar, payload'ları sırayla gönderir, her birinin yanıtını okur."""
+    """Tek socket açar ve payload'ları gönderir.
+
+    * Tek istek: gönder → yanıtı oku (mevcut davranış).
+    * İki+ istek (smuggling): tüm istekler ilk yanıtı beklemeden art arda aynı
+      sokete yazılır (pipeline), sonra gelen TÜM veri okunup yanıtlara ayrılır.
+      Böylece `Connection: close` olsa bile ikinci yanıt (ör. 404) yakalanır.
+    """
     result: dict = {"requests": [], "error": None, "tls": use_tls}
     sock: Optional[socket.socket] = None
     try:
@@ -142,42 +222,106 @@ def send_raw(
         return result
 
     try:
-        for i, payload in enumerate(payloads):
-            if i > 0 and delay_ms > 0:
-                time.sleep(delay_ms / 1000.0)
-            entry: dict = {
-                "index": i,
-                "sent_size": len(payload),
-                "sent_base64": base64.b64encode(payload).decode("ascii"),
-                "send_error": None,
-                "recv_error": None,
-                "response_base64": "",
-                "response_size": 0,
-                "duration_ms": 0.0,
-            }
-            started = time.time()
-            try:
-                sock.settimeout(timeout)
-                sock.sendall(payload)
-            except OSError as exc:
-                entry["send_error"] = f"{type(exc).__name__}: {exc}"
-                entry["duration_ms"] = (time.time() - started) * 1000.0
-                result["requests"].append(entry)
-                break
-            try:
-                resp = _recv_response(sock, timeout, read_idle)
-                entry["response_base64"] = base64.b64encode(resp).decode("ascii")
-                entry["response_size"] = len(resp)
-            except OSError as exc:
-                entry["recv_error"] = f"{type(exc).__name__}: {exc}"
-            entry["duration_ms"] = (time.time() - started) * 1000.0
-            result["requests"].append(entry)
+        if len(payloads) >= 2:
+            _send_pipeline(sock, payloads, result, timeout, read_idle, delay_ms)
+        else:
+            _send_sequential(sock, payloads, result, timeout, read_idle, delay_ms)
     finally:
         try:
             sock.close()
         except Exception:
             pass
     return result
+
+
+def _send_sequential(sock, payloads, result, timeout, read_idle, delay_ms) -> None:
+    """Tek istek (ve genel sıralı) davranışı: gönder → yanıtı oku."""
+    for i, payload in enumerate(payloads):
+        if i > 0 and delay_ms > 0:
+            time.sleep(delay_ms / 1000.0)
+        entry: dict = {
+            "index": i,
+            "sent_size": len(payload),
+            "sent_base64": base64.b64encode(payload).decode("ascii"),
+            "send_error": None,
+            "recv_error": None,
+            "response_base64": "",
+            "response_size": 0,
+            "duration_ms": 0.0,
+        }
+        started = time.time()
+        try:
+            sock.settimeout(timeout)
+            sock.sendall(payload)
+        except OSError as exc:
+            entry["send_error"] = f"{type(exc).__name__}: {exc}"
+            entry["duration_ms"] = (time.time() - started) * 1000.0
+            result["requests"].append(entry)
+            break
+        try:
+            resp = _recv_response(sock, timeout, read_idle)
+            entry["response_base64"] = base64.b64encode(resp).decode("ascii")
+            entry["response_size"] = len(resp)
+        except OSError as exc:
+            entry["recv_error"] = f"{type(exc).__name__}: {exc}"
+        entry["duration_ms"] = (time.time() - started) * 1000.0
+        result["requests"].append(entry)
+
+
+def _send_pipeline(sock, payloads, result, timeout, read_idle, delay_ms) -> None:
+    """Pipeline: tüm istekleri art arda yaz, sonra tüm veriyi oku ve yanıtlara ayır."""
+    entries: list[dict] = []
+    for i, payload in enumerate(payloads):
+        entries.append({
+            "index": i,
+            "sent_size": len(payload),
+            "sent_base64": base64.b64encode(payload).decode("ascii"),
+            "send_error": None,
+            "recv_error": None,
+            "response_base64": "",
+            "response_size": 0,
+            "duration_ms": 0.0,
+        })
+
+    started = time.time()
+    # Tüm payload'ları ilk yanıtı beklemeden art arda yaz.
+    for i, payload in enumerate(payloads):
+        if i > 0 and delay_ms > 0:
+            time.sleep(delay_ms / 1000.0)
+        try:
+            sock.settimeout(timeout)
+            sock.sendall(payload)
+        except OSError as exc:
+            entries[i]["send_error"] = f"{type(exc).__name__}: {exc}"
+            break
+
+    # Gelen TÜM veriyi oku (Connection: close ise EOF, değilse read_idle ile dur).
+    recv_error = None
+    raw = b""
+    try:
+        raw = _recv_response(sock, timeout, read_idle)
+    except OSError as exc:
+        recv_error = f"{type(exc).__name__}: {exc}"
+
+    elapsed = (time.time() - started) * 1000.0
+    responses = split_http_responses(raw) if raw else []
+
+    for i, entry in enumerate(entries):
+        entry["duration_ms"] = elapsed
+        if i < len(responses):
+            entry["response_base64"] = base64.b64encode(responses[i]).decode("ascii")
+            entry["response_size"] = len(responses[i])
+        elif recv_error:
+            entry["recv_error"] = recv_error
+        result["requests"].append(entry)
+
+    # İstek sayısından fazla yanıt geldiyse (nadir) son isteğe ekle.
+    if len(responses) > len(entries) and entries:
+        extra = b"".join(responses[len(entries):])
+        last = result["requests"][-1]
+        merged = base64.b64decode(last["response_base64"]) + extra
+        last["response_base64"] = base64.b64encode(merged).decode("ascii")
+        last["response_size"] = len(merged)
 
 
 def _parse_status(resp: bytes) -> Optional[int]:
