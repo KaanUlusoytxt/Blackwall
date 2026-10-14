@@ -980,7 +980,8 @@ function renderRawResult(data) {
     const pre = document.createElement("pre");
     pre.textContent = renderBytes(r.response_base64);
     const sent = document.createElement("details");
-    sent.innerHTML = `<summary>gönderilen ham byte'lar (${r.sent_size} B)</summary>`;
+    sent.open = true;   // gönderilen isteği görünür göster (okunur; hex için "hex dump" kutusu)
+    sent.innerHTML = `<summary>gönderilen istek (${r.sent_size} B) — hex için üstteki "hex dump" kutusu</summary>`;
     const spre = document.createElement("pre");
     spre.className = "sent";
     spre.textContent = renderBytes(r.sent_base64);

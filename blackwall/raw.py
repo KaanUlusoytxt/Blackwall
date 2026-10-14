@@ -647,11 +647,24 @@ _H2_FORBIDDEN = {
 }
 
 
+def _as_bytes(x) -> bytes:
+    return x if isinstance(x, (bytes, bytearray)) else str(x).encode("latin-1", "replace")
+
+
 def _render_h2_from_parts(pseudo: list, reg: list, body: bytes) -> bytes:
-    """Frame'e giren pseudo + normal header'ları ve gövdeyi okunur metne çevirir."""
-    lines = [f"{k}: {v}" for k, v in pseudo] + [f"{k}: {v}" for k, v in reg]
-    head = ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1", "replace")
-    return head + (body or b"")
+    """Frame'e giren pseudo + normal header'ları ve gövdeyi ham byte'lara çevirir.
+
+    reg değerleri bytes olabilir (malformed modda escape çözümünden gelen ham CRLF
+    vb.); bu byte'lar olduğu gibi inline yazılır ki hex dump'ta görünsün.
+    """
+    out = bytearray()
+    for k, v in pseudo:
+        out += _as_bytes(k) + b": " + _as_bytes(v) + b"\r\n"
+    for k, v in reg:
+        out += _as_bytes(k) + b": " + _as_bytes(v) + b"\r\n"
+    out += b"\r\n"
+    out += body or b""
+    return bytes(out)
 
 
 def h2_send(
@@ -732,8 +745,9 @@ def h2_send(
                 (":scheme", "https"), (":authority", authority),
             ]
             if malformed:
-                # Host → :authority dışında DOKUNMA: isim/değer aynen, yasak header'lar dahil.
-                reg = [(k, v) for k, v in headers if k.lower() != "host"]
+                # Host → :authority dışında DOKUNMA. Header DEĞERİNDEKİ \r \n \t \0
+                # \xHH \\ escape'leri GERÇEK byte'a çevrilir (CRLF injection); isim aynen.
+                reg = [(k, _decode_escapes(v)) for k, v in headers if k.lower() != "host"]
             else:
                 reg = [(k.lower(), v) for k, v in headers if k.lower() not in _H2_FORBIDDEN]
             sid = conn.get_next_available_stream_id()

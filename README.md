@@ -234,6 +234,13 @@ curl -x http://127.0.0.1:8080 \
         istekte yazıldığı gibi **frame'e aynen** konur (kütüphane silmez/düzeltmez,
         isim kasası bile korunur). Yalnızca `Host` → `:authority` eşlenir; diğer
         header'lara dokunulmaz. (Valid modda bu header'lar atılır ve isimler küçültülür.)
+        - **CRLF injection:** malformed modda bir header DEĞERİNE yazılan `\r \n \t
+          \0 \xHH \\` escape'leri tel üzerinde **gerçek byte'a** çevrilir; kütüphane
+          temizlemez, h2 frame'inde header değeri o ham byte'ları içerir. Örn.
+          `x-test: aaa\r\nx-injected: bbb` → değer `aaa`+CRLF+`x-injected: bbb`
+          (hex: `61 61 61 0d 0a …`). Pseudo-header'lara dokunulmaz.
+    - Her iki h2 modunda da **gönderilen istek** (okunur; "hex dump" kutusuyla hex)
+      ve yanıt gösterilir — frame'deki ham byte'lar doğrulanabilir.
     - **Satır sonu modu:**
       - `CRLF` (varsayılan) — textarea'daki satır sonları `\r\n` yapılır.
       - `LF` — satır sonları `\n` kalır (bare-LF testleri).
