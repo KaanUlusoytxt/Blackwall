@@ -37,6 +37,7 @@
         <button class="tab" data-pane="repeater">Repeater</button>
         <button class="tab" data-pane="inspector">Inspector</button>
         <button class="tab" data-pane="intruder">Intruder</button>
+        <button class="tab" data-pane="oast">OAST</button>
         <button class="tab" data-pane="decoder">Decoder</button>
         <button class="tab" data-pane="jwt">JWT</button>
       </div>
@@ -142,6 +143,35 @@
         </div>
         <label class="lbl">Tam yanıt <span id="intr-detail-idx" class="hint"></span></label>
         <pre id="intr-detail" class="raw"></pre>
+      </div>
+
+      <!-- OAST -->
+      <div class="pane" id="pane-oast">
+        <div class="rep-row">
+          <label class="inline">sunucu <input id="oast-server" type="text" value="oast.pro" /></label>
+          <label class="inline">token <input id="oast-token" type="text" placeholder="(public sunucuda boş)" /></label>
+          <button id="oast-start">Başlat</button>
+          <button id="oast-stop" class="danger" disabled>Durdur</button>
+        </div>
+        <div class="rep-row">
+          <button id="oast-gen" disabled>Yeni subdomain üret</button>
+          <button id="oast-pause" disabled>Poll'u duraklat</button>
+          <span id="oast-state" class="hint">—</span>
+        </div>
+        <label class="lbl">Üretilen subdomainler <span class="hint">(tıkla → kopyala)</span></label>
+        <ul id="oast-urls" class="oast-urls"></ul>
+
+        <label class="lbl">Etkileşimler (<span id="oast-count">0</span>)</label>
+        <div class="intr-table-wrap">
+          <table id="oast-table">
+            <thead><tr>
+              <th>#</th><th>protokol</th><th>tip</th><th>kaynak IP</th><th>zaman</th><th>full-id</th>
+            </tr></thead>
+            <tbody id="oast-tbody"></tbody>
+          </table>
+        </div>
+        <label class="lbl">Detay <span id="oast-detail-idx" class="hint"></span></label>
+        <pre id="oast-detail" class="raw"></pre>
       </div>
 
       <!-- Decoder -->

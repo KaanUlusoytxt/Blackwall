@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from blackwall import db, tools
+from blackwall import db, oast, tools
 
 # Intruder sınırları
 MAX_REQUESTS = 10_000      # bir saldırıda üretilecek toplam istek üst sınırı
@@ -377,6 +377,153 @@ def api_intruder_result(job_id: str, index: int):
         "request": job["requests"].get(index, ""),
         "response": job["responses"].get(index, "(yanıt yok)"),
     }
+
+
+# ---------------------------------------------------------------------------
+# OAST (interactsh)
+# ---------------------------------------------------------------------------
+# Tek, aktif OAST oturumu bellekte tutulur.
+OAST_STATE: dict[str, Any] = {
+    "client": None,
+    "task": None,
+    "polling": False,
+    "server": None,
+    "interval": 6.0,
+    "interactions": [],
+    "urls": [],
+    "error": None,
+    "started_at": None,
+}
+
+
+class OastStart(BaseModel):
+    server: str = "oast.pro"
+    token: str = ""
+    interval: float = 6.0
+
+
+async def _oast_loop() -> None:
+    client: oast.InteractshClient = OAST_STATE["client"]
+    while OAST_STATE["polling"]:
+        try:
+            raws = await asyncio.to_thread(client.poll)
+            for raw in raws:
+                n = oast.normalize_interaction(raw)
+                n["index"] = len(OAST_STATE["interactions"])
+                n["received_at"] = time.time()
+                OAST_STATE["interactions"].append(n)
+            OAST_STATE["error"] = None
+        except oast.InteractshError as exc:
+            OAST_STATE["error"] = str(exc)
+        except Exception as exc:  # döngü çökmesin
+            OAST_STATE["error"] = f"{type(exc).__name__}: {exc}"
+        await asyncio.sleep(OAST_STATE["interval"])
+
+
+async def _oast_stop_current() -> None:
+    OAST_STATE["polling"] = False
+    task = OAST_STATE["task"]
+    if task:
+        task.cancel()
+    client = OAST_STATE["client"]
+    if client:
+        await asyncio.to_thread(client.deregister)
+    OAST_STATE["task"] = None
+
+
+def _oast_status() -> dict:
+    client = OAST_STATE["client"]
+    summary = [
+        {
+            "index": i["index"],
+            "protocol": i["protocol"],
+            "q_type": i["q_type"],
+            "remote_address": i["remote_address"],
+            "timestamp": i["timestamp"],
+            "full_id": i["full_id"],
+            "received_at": i["received_at"],
+        }
+        for i in OAST_STATE["interactions"]
+    ]
+    return {
+        "active": client is not None,
+        "polling": OAST_STATE["polling"],
+        "server": OAST_STATE["server"],
+        "correlation_id": client.correlation_id if client else None,
+        "urls": OAST_STATE["urls"],
+        "interactions": summary,
+        "count": len(summary),
+        "error": OAST_STATE["error"],
+    }
+
+
+@app.post("/api/oast/start")
+async def api_oast_start(cfg: OastStart):
+    await _oast_stop_current()
+    OAST_STATE.update(
+        client=None, interactions=[], urls=[], error=None,
+        server=cfg.server, interval=max(2.0, cfg.interval),
+    )
+    client = oast.InteractshClient(server=cfg.server, token=cfg.token)
+    try:
+        await asyncio.to_thread(client.register)
+    except oast.InteractshError as exc:
+        raise HTTPException(400, str(exc))
+    OAST_STATE["client"] = client
+    OAST_STATE["started_at"] = time.time()
+    first_url = client.new_url()
+    OAST_STATE["urls"].append(first_url)
+    OAST_STATE["polling"] = True
+    OAST_STATE["task"] = asyncio.create_task(_oast_loop())
+    return _oast_status()
+
+
+@app.post("/api/oast/generate")
+def api_oast_generate():
+    client = OAST_STATE["client"]
+    if client is None:
+        raise HTTPException(400, "Aktif OAST oturumu yok")
+    url = client.new_url()
+    OAST_STATE["urls"].append(url)
+    return {"url": url}
+
+
+@app.post("/api/oast/pause")
+def api_oast_pause():
+    if OAST_STATE["client"] is None:
+        raise HTTPException(400, "Aktif OAST oturumu yok")
+    OAST_STATE["polling"] = False
+    return _oast_status()
+
+
+@app.post("/api/oast/resume")
+async def api_oast_resume():
+    if OAST_STATE["client"] is None:
+        raise HTTPException(400, "Aktif OAST oturumu yok")
+    if not OAST_STATE["polling"]:
+        OAST_STATE["polling"] = True
+        OAST_STATE["task"] = asyncio.create_task(_oast_loop())
+    return _oast_status()
+
+
+@app.post("/api/oast/stop")
+async def api_oast_stop():
+    await _oast_stop_current()
+    OAST_STATE.update(client=None, server=None, started_at=None)
+    return {"ok": True}
+
+
+@app.get("/api/oast/status")
+def api_oast_status():
+    return _oast_status()
+
+
+@app.get("/api/oast/interaction/{index}")
+def api_oast_interaction(index: int):
+    items = OAST_STATE["interactions"]
+    if index < 0 or index >= len(items):
+        raise HTTPException(404, "Etkileşim bulunamadı")
+    return items[index]
 
 
 # ---------------------------------------------------------------------------

@@ -565,6 +565,130 @@ async function showIntrDetail(index) {
     "=== İSTEK ===\n" + data.request + "\n\n=== YANIT ===\n" + data.response;
 }
 
+// ---- OAST --------------------------------------------------------------
+const oast = { poll: null, selIdx: null, lastCount: 0 };
+
+function setOastButtons(active, polling) {
+  $("#oast-start").disabled = active;
+  $("#oast-stop").disabled = !active;
+  $("#oast-gen").disabled = !active;
+  $("#oast-pause").disabled = !active;
+  $("#oast-pause").textContent = polling ? "Poll'u duraklat" : "Poll'u sürdür";
+  $("#oast-server").disabled = active;
+  $("#oast-token").disabled = active;
+}
+
+function renderOastUrls(urls) {
+  const ul = $("#oast-urls");
+  ul.innerHTML = "";
+  for (const u of urls) {
+    const li = document.createElement("li");
+    li.textContent = u;
+    li.onclick = () => {
+      copyText(u);
+      const s = document.createElement("span");
+      s.className = "copied"; s.textContent = "✓ kopyalandı";
+      li.appendChild(s);
+      setTimeout(() => s.remove(), 1200);
+    };
+    ul.appendChild(li);
+  }
+}
+
+function renderOastTable(interactions) {
+  const tbody = $("#oast-tbody");
+  tbody.innerHTML = "";
+  // en yeni üstte
+  for (const it of [...interactions].reverse()) {
+    const tr = document.createElement("tr");
+    if (it.index === oast.selIdx) tr.classList.add("sel");
+    const t = it.timestamp ? it.timestamp.replace("T", " ").slice(0, 19) : "";
+    tr.innerHTML = `
+      <td>${it.index}</td>
+      <td class="p-${it.protocol}">${it.protocol}</td>
+      <td>${it.q_type || "—"}</td>
+      <td>${escapeHtml(it.remote_address || "—")}</td>
+      <td>${escapeHtml(t)}</td>
+      <td title="${escapeHtml(it.full_id)}">${escapeHtml(it.full_id)}</td>`;
+    tr.onclick = () => showOastDetail(it.index);
+    tbody.appendChild(tr);
+  }
+}
+
+function applyOastStatus(data) {
+  setOastButtons(data.active, data.polling);
+  renderOastUrls(data.urls || []);
+  renderOastTable(data.interactions || []);
+  $("#oast-count").textContent = data.count || 0;
+  let state = data.active ? (data.polling ? "dinleniyor" : "duraklatıldı") : "kapalı";
+  if (data.correlation_id) state += ` · id ${data.correlation_id} · ${data.server}`;
+  if (data.error) state += ` · ⚠ ${data.error}`;
+  $("#oast-state").textContent = state;
+  oast.lastCount = data.count || 0;
+}
+
+async function oastStatus() {
+  const res = await fetch("/api/oast/status");
+  if (res.ok) applyOastStatus(await res.json());
+}
+
+$("#oast-start").onclick = async () => {
+  $("#oast-start").disabled = true;
+  $("#oast-state").textContent = "kaydolunuyor…";
+  const res = await fetch("/api/oast/start", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ server: $("#oast-server").value.trim(), token: $("#oast-token").value.trim() }),
+  });
+  const data = await res.json();
+  if (!res.ok) { $("#oast-state").textContent = "⚠ " + (data.detail || "başlatılamadı"); $("#oast-start").disabled = false; return; }
+  oast.selIdx = null; $("#oast-detail").textContent = "";
+  applyOastStatus(data);
+  startOastPolling();
+};
+
+$("#oast-stop").onclick = async () => {
+  stopOastPolling();
+  await fetch("/api/oast/stop", { method: "POST" });
+  oastStatus();
+};
+
+$("#oast-gen").onclick = async () => {
+  const res = await fetch("/api/oast/generate", { method: "POST" });
+  const data = await res.json();
+  if (res.ok) { copyText(data.url); oastStatus(); }
+};
+
+$("#oast-pause").onclick = async () => {
+  const polling = $("#oast-pause").textContent.includes("duraklat");
+  await fetch("/api/oast/" + (polling ? "pause" : "resume"), { method: "POST" });
+  oastStatus();
+};
+
+function startOastPolling() {
+  stopOastPolling();
+  oast.poll = setInterval(oastStatus, 3000);
+}
+function stopOastPolling() {
+  if (oast.poll) { clearInterval(oast.poll); oast.poll = null; }
+}
+
+async function showOastDetail(index) {
+  oast.selIdx = index;
+  const res = await fetch("/api/oast/interaction/" + index);
+  if (!res.ok) return;
+  const d = await res.json();
+  $("#oast-detail-idx").textContent = `#${index} · ${d.protocol}`;
+  let out = `protokol : ${d.protocol}\n`;
+  if (d.q_type) out += `tip      : ${d.q_type}\n`;
+  out += `kaynak IP: ${d.remote_address}\nzaman    : ${d.timestamp}\nfull-id  : ${d.full_id}\n`;
+  out += `\n=== HAM İSTEK ===\n${d.raw_request || "(yok)"}`;
+  if (d.raw_response) out += `\n\n=== HAM YANIT ===\n${d.raw_response}`;
+  $("#oast-detail").textContent = out;
+  for (const tr of $("#oast-tbody").querySelectorAll("tr")) {
+    tr.classList.toggle("sel", tr.firstElementChild && tr.firstElementChild.textContent === String(index));
+  }
+}
+
 // ---- Kopyalama ---------------------------------------------------------
 async function copyText(text) {
   try {
@@ -581,3 +705,6 @@ async function copyText(text) {
 // Otomatik yenileme
 setInterval(() => { if ($("#autorefresh").checked) loadFlows(); }, 2000);
 loadFlows();
+
+// Açılışta aktif OAST oturumu varsa yükle ve pollingi sürdür
+oastStatus().then(() => { if ($("#oast-stop").disabled === false) startOastPolling(); });

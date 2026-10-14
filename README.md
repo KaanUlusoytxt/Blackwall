@@ -159,6 +159,23 @@ curl -x http://127.0.0.1:8080 \
       tıklayınca gönderilen istek ve tam yanıt aşağıda görünür.
     - Tamamen yerel/offline; istekler doğrudan hedefe httpx ile gider (proxy'den
       geçmez).
+  - **OAST** sekmesi: out-of-band etkileşim yakalama (interactsh protokolü, saf
+    Python — dış binary yok). SSRF, kör (blind) enjeksiyon, XXE gibi doğrudan
+    yanıt dönmeyen zafiyetleri dışarıdan tetiklenen DNS/HTTP istekleriyle tespit
+    etmek için.
+    - **Sunucu** adresi değiştirilebilir (varsayılan `oast.pro`; ileride kendi
+      interactsh VPS'inize yöneltebilirsiniz). Public sunucuda token boş bırakılır.
+    - **Başlat**: bir RSA-2048 anahtar çifti üretir, sunucuya kaydolur ve size
+      `xxxx.oast.pro` biçiminde bir subdomain verir. **Yeni subdomain üret** aynı
+      kayıt altında ek subdomainler oluşturur (hepsi aynı poll'a düşer).
+      Subdomain'e tıklayınca panoya kopyalanır.
+    - Arka planda periyodik poll edilir; gelen etkileşimler (protokol, DNS sorgu
+      tipi, kaynak IP, zaman) tabloya yazılır. Satıra tıklayınca ham istek/yanıt
+      detayı görünür. **Poll'u duraklat / sürdür** ve **Durdur** (kaydı siler)
+      düğmeleri vardır.
+    - Protokol detayları: poll yanıtındaki AES anahtarı RSA-OAEP(SHA-256) ile,
+      her etkileşim AES-256-CTR ile yerel olarak çözülür. Kayıt/poll için yalnızca
+      seçilen interactsh sunucusuna bağlanılır.
   - **Decoder** sekmesi: girdiye üst üste **katmanlar** uygulayın —
     base64 (standart ve url-safe), url, HTML entity, hex, ascii (ondalık kod)
     encode/decode; ayrıca md5 / sha1 / sha256 hash. Her katmanın ara çıktısı

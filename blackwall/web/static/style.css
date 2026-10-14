@@ -117,3 +117,24 @@ label.inline input[type=number] { width: 64px; }
 #intr-table tbody tr:hover { background: #1c2128; }
 #intr-table tbody tr.sel { background: #1f6feb33; }
 #intr-detail { max-height: 30vh; }
+
+/* OAST */
+.oast-urls { list-style: none; padding: 0; margin: 0 0 8px; }
+.oast-urls li {
+  font-family: var(--mono); font-size: 12px; padding: 5px 8px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px;
+  background: var(--panel); color: var(--accent); word-break: break-all;
+}
+.oast-urls li:hover { border-color: var(--accent); }
+.oast-urls li .copied { color: var(--ok); margin-left: 8px; font-size: 11px; }
+#oast-server { width: 160px; }
+#oast-token { width: 160px; }
+#oast-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#oast-table th { position: sticky; top: 0; background: var(--panel); white-space: nowrap; }
+#oast-table td { font-family: var(--mono); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#oast-table tbody tr { cursor: pointer; }
+#oast-table tbody tr:hover { background: #1c2128; }
+#oast-table tbody tr.sel { background: #1f6feb33; }
+.p-dns { color: var(--ok); } .p-http { color: var(--warn); }
+.p-smtp, .p-ldap { color: var(--accent); } .p-error { color: var(--err); }
+#oast-detail { max-height: 34vh; }
