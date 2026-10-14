@@ -935,6 +935,7 @@ async function rawSend() {
     host: $("#raw-host").value.trim(),
     port: parseInt($("#raw-port").value, 10) || 80,
     tls: $("#raw-tls").checked,
+    http_version: $("#raw-httpver").value,
     mode: $("#raw-mode").value,
     request1: $("#raw-req1").value,
     request2: $("#raw-req2").value,
@@ -990,6 +991,15 @@ function renderRawResult(data) {
 }
 
 $("#raw-send").onclick = rawSend;
+$("#raw-httpver").onchange = () => {
+  const h2 = $("#raw-httpver").value === "2";
+  if (h2) $("#raw-tls").checked = true;      // h2 ALPN → TLS zorunlu
+  $("#raw-tls").disabled = h2;
+  $("#raw-mode").disabled = h2;              // h2'de istek parse edilir, satır sonu modu kullanılmaz
+  $("#raw-state").textContent = h2
+    ? "HTTP/2: ham istek parse edilip geçerli h2 isteği (HEADERS+DATA) olarak gönderilir"
+    : "";
+};
 $("#raw-hex").onchange = () => { if (lastRawData) renderRawResult(lastRawData); };
 rawHint();
 

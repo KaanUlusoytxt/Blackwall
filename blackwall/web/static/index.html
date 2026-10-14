@@ -163,6 +163,12 @@
           <label class="inline">port <input id="raw-port" type="number" value="80" min="1" max="65535" /></label>
           <label class="inline"><input id="raw-tls" type="checkbox" /> TLS</label>
           <label class="inline">SNI <input id="raw-sni" type="text" placeholder="(host)" /></label>
+          <label class="inline">HTTP sürümü
+            <select id="raw-httpver">
+              <option value="1.1">1.1 (ham socket)</option>
+              <option value="2">2 (h2)</option>
+            </select>
+          </label>
         </div>
         <div class="rep-row">
           <label class="inline">satır sonu

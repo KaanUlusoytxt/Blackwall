@@ -625,9 +625,10 @@ class RawSendRequest(BaseModel):
     host: str
     port: int = 80
     tls: bool = False
-    mode: str = "crlf"               # crlf | lf | escape
+    http_version: str = "1.1"        # 1.1 (ham socket) | 2 (h2)
+    mode: str = "crlf"               # crlf | lf | escape (yalnızca 1.1)
     request1: str = ""
-    request2: Optional[str] = None   # aynı socket'te ikinci istek
+    request2: Optional[str] = None   # aynı socket/bağlantıda ikinci istek
     timeout: float = 10.0
     read_idle: float = 1.0
     delay_ms: int = 0
@@ -636,13 +637,38 @@ class RawSendRequest(BaseModel):
 
 @app.post("/api/raw/send")
 async def api_raw_send(reqdata: RawSendRequest):
-    if not reqdata.host.strip():
+    host = reqdata.host.strip()
+    if not host:
         raise HTTPException(400, "host gerekli")
     if not (1 <= reqdata.port <= 65535):
         raise HTTPException(400, "port 1-65535 arası olmalı")
+    sni = reqdata.sni.strip() if reqdata.sni else None
+
+    if reqdata.http_version == "2":
+        # HTTP/2: ham istek metni parse edilip geçerli h2 isteğine çevrilir.
+        req_texts = [reqdata.request1]
+        if reqdata.request2 and reqdata.request2.strip():
+            req_texts.append(reqdata.request2)
+        requests = []
+        for text in req_texts:
+            try:
+                method, path, headers, body = tools.parse_request(text)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
+            authority = tools.host_header(headers) or (
+                host if reqdata.port == 443 else f"{host}:{reqdata.port}"
+            )
+            requests.append({"method": method, "path": path, "headers": headers,
+                             "body": body, "authority": authority})
+        result = await asyncio.to_thread(
+            raw.h2_send, host=host, port=reqdata.port, requests=requests,
+            timeout=reqdata.timeout, read_idle=reqdata.read_idle, sni=sni,
+        )
+        return result
+
+    # HTTP/1.1 ham socket (mevcut davranış + iki-istek pipeline).
     if reqdata.mode not in ("crlf", "lf", "escape"):
         raise HTTPException(400, "mode crlf | lf | escape olmalı")
-
     try:
         payloads = [raw.encode_payload(reqdata.request1, reqdata.mode)]
         if reqdata.request2 and reqdata.request2.strip():
@@ -652,14 +678,14 @@ async def api_raw_send(reqdata: RawSendRequest):
 
     result = await asyncio.to_thread(
         raw.send_raw,
-        host=reqdata.host.strip(),
+        host=host,
         port=reqdata.port,
         use_tls=reqdata.tls,
         payloads=payloads,
         timeout=reqdata.timeout,
         read_idle=reqdata.read_idle,
         delay_ms=reqdata.delay_ms,
-        sni=(reqdata.sni.strip() if reqdata.sni else None),
+        sni=sni,
     )
     return result
 

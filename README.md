@@ -218,8 +218,16 @@ curl -x http://127.0.0.1:8080 \
     - **Tamamen ham soket** (stdlib `socket`/`ssl`; httpx/requests kullanmaz).
       Yazdığınız byte'lara dokunulmaz: `Content-Length` / `Transfer-Encoding`
       otomatik hesaplanmaz, header sırası korunur, chunked gövde olduğu gibi gider.
-    - **host / port / TLS / SNI** seçilir. TLS'de sertifika doğrulanmaz (ALPN
-      ayarlanmaz → sunucu HTTP/1.1 kullanır).
+    - **host / port / TLS / SNI** seçilir. TLS'de sertifika doğrulanmaz.
+    - **HTTP sürümü** seçilir:
+      - **1.1 (ham socket):** aşağıdaki tüm özellikler (byte korunumu, satır sonu
+        modları, iki-istek pipeline) bu moda aittir.
+      - **2 (h2):** `h2` (saf Python) ile tek TLS bağlantısı (ALPN h2) açılır; ham
+        istek metni parse edilip (method/path/headers/body) **geçerli** bir HTTP/2
+        isteğine (pseudo-header'lar `:method/:path/:scheme/:authority` + HEADERS/DATA
+        frame) çevrilir, yanıt toplanıp gösterilir. İki istek girilirse iki ayrı
+        stream olarak gönderilir. TLS zorunludur; satır sonu modu kullanılmaz.
+        (Malformed/smuggling frame'ler kapsam dışı — sonraki adım.)
     - **Satır sonu modu:**
       - `CRLF` (varsayılan) — textarea'daki satır sonları `\r\n` yapılır.
       - `LF` — satır sonları `\n` kalır (bare-LF testleri).

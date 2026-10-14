@@ -639,3 +639,150 @@ def tools_host_header(headers: list[tuple[str, str]]) -> str:
         if k.lower() == "host":
             return v
     return ""
+
+
+_H2_FORBIDDEN = {
+    "host", "connection", "keep-alive", "proxy-connection",
+    "transfer-encoding", "upgrade", "content-length",
+}
+
+
+def _render_h2_request_bytes(method, path, authority, headers, body: bytes) -> bytes:
+    lines = [f":method: {method}", f":path: {path}", ":scheme: https",
+             f":authority: {authority}"]
+    lines += [f"{k.lower()}: {v}" for k, v in headers if k.lower() not in _H2_FORBIDDEN]
+    head = ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1", "replace")
+    return head + (body or b"")
+
+
+def h2_send(
+    *,
+    host: str,
+    port: int,
+    requests: list[dict],
+    timeout: float = 15.0,
+    read_idle: float = 3.0,
+    sni: Optional[str] = None,
+) -> dict:
+    """Tek TLS bağlantısı (ALPN h2) üzerinden GEÇERLİ HTTP/2 istek(ler)i gönderir.
+
+    requests: [{method, path, headers, body, authority}] — her biri ayrı stream.
+    Yanıtlar toplanıp send_raw ile aynı sonuç şekline (requests listesi) çevrilir.
+    Not: burada istekler geçerli ve normal biçimde (end_stream düzgün) gönderilir;
+    malformed/smuggling frame'ler kapsam dışı.
+    """
+    import h2.config
+    import h2.connection
+    import h2.events
+
+    result: dict = {"requests": [], "error": None, "tls": True}
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        ctx.set_alpn_protocols(["h2"])
+        server_hostname = sni if sni else host
+        try:
+            tsock = ctx.wrap_socket(sock, server_hostname=server_hostname)
+        except (ValueError, ssl.SSLError):
+            tsock = ctx.wrap_socket(sock, server_hostname=None)
+        result["tls_version"] = tsock.version()
+    except OSError as exc:
+        result["error"] = f"Bağlantı hatası: {type(exc).__name__}: {exc}"
+        return result
+
+    if tsock.selected_alpn_protocol() != "h2":
+        try:
+            tsock.close()
+        except Exception:
+            pass
+        result["error"] = "Sunucu HTTP/2 (ALPN h2) desteklemiyor"
+        return result
+
+    try:
+        conn = h2.connection.H2Connection(
+            config=h2.config.H2Configuration(client_side=True)
+        )
+        conn.initiate_connection()
+        tsock.sendall(conn.data_to_send())
+
+        started = time.time()
+        meta: list[dict] = []   # {sid, index, sent}
+        for i, rq in enumerate(requests):
+            method, path = rq["method"], rq["path"]
+            headers, body = rq["headers"], rq["body"] or b""
+            authority = rq.get("authority") or host
+            h2h = [
+                (":method", method), (":path", path),
+                (":scheme", "https"), (":authority", authority),
+            ] + [(k.lower(), v) for k, v in headers if k.lower() not in _H2_FORBIDDEN]
+            sid = conn.get_next_available_stream_id()
+            conn.send_headers(sid, h2h, end_stream=(not body))
+            if body:
+                # Akış kontrolü basit: tipik istek gövdeleri pencereye sığar.
+                conn.send_data(sid, body, end_stream=True)
+            meta.append({
+                "sid": sid, "index": i,
+                "sent": _render_h2_request_bytes(method, path, authority, headers, body),
+            })
+        tsock.sendall(conn.data_to_send())
+
+        acc = {m["sid"]: {"status": None, "headers": [], "body": b""} for m in meta}
+        ended: set[int] = set()
+        deadline = time.time() + timeout
+        while len(ended) < len(meta):
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            tsock.settimeout(min(read_idle, remaining))
+            try:
+                data = tsock.recv(65536)
+            except (socket.timeout, TimeoutError):
+                continue
+            if not data:
+                break
+            for ev in conn.receive_data(data):
+                if isinstance(ev, h2.events.ResponseReceived):
+                    acc[ev.stream_id]["headers"] = ev.headers
+                    for k, v in ev.headers:
+                        kk = k.decode("latin-1") if isinstance(k, bytes) else k
+                        if kk == ":status":
+                            vv = v.decode("latin-1") if isinstance(v, bytes) else v
+                            try:
+                                acc[ev.stream_id]["status"] = int(vv)
+                            except ValueError:
+                                pass
+                elif isinstance(ev, h2.events.DataReceived):
+                    acc[ev.stream_id]["body"] += ev.data
+                    conn.acknowledge_received_data(ev.flow_controlled_length, ev.stream_id)
+                elif isinstance(ev, h2.events.StreamEnded):
+                    ended.add(ev.stream_id)
+            out = conn.data_to_send()
+            if out:
+                tsock.sendall(out)
+
+        elapsed = (time.time() - started) * 1000.0
+        for m in meta:
+            a = acc[m["sid"]]
+            full = _reconstruct_h2_response(a["status"], a["headers"], a["body"])
+            result["requests"].append({
+                "index": m["index"],
+                "sent_size": len(m["sent"]),
+                "sent_base64": base64.b64encode(m["sent"]).decode("ascii"),
+                "response_base64": base64.b64encode(full[:RACE_BODY_CAP]).decode("ascii"),
+                "response_size": len(full),
+                "duration_ms": elapsed,
+                "send_error": None,
+                "recv_error": None if a["status"] is not None else "yanıt alınamadı",
+            })
+        return result
+    except Exception as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+        return result
+    finally:
+        try:
+            tsock.close()
+        except Exception:
+            pass
