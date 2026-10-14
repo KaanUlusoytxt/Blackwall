@@ -153,6 +153,8 @@ for (const tab of document.querySelectorAll(".tab")) {
     document.querySelectorAll(".pane").forEach((p) => p.classList.remove("active"));
     tab.classList.add("active");
     $("#pane-" + tab.dataset.pane).classList.add("active");
+    if (tab.dataset.pane === "websocket") { wsLoadFlows(); startWsPolling(); }
+    else stopWsPolling();
   };
 }
 
@@ -688,6 +690,106 @@ async function showOastDetail(index) {
     tr.classList.toggle("sel", tr.firstElementChild && tr.firstElementChild.textContent === String(index));
   }
 }
+
+// ---- WebSocket ---------------------------------------------------------
+const ws = { flowId: null, state: null, lastId: 0, poll: null };
+
+async function wsLoadFlows() {
+  const res = await fetch("/api/ws/flows");
+  if (!res.ok) return;
+  const data = await res.json();
+  const ul = $("#ws-conn-list");
+  ul.innerHTML = "";
+  if (!data.flows.length) {
+    ul.innerHTML = `<li class="hint" style="cursor:default;border:none">Henüz WebSocket bağlantısı yakalanmadı.</li>`;
+  }
+  for (const f of data.flows) {
+    const li = document.createElement("li");
+    if (f.flow_id === ws.flowId) li.classList.add("sel");
+    const when = new Date(f.created_at * 1000).toLocaleTimeString();
+    li.innerHTML = `
+      <div class="host">${escapeHtml(f.host)}:${f.port}${escapeHtml(f.path)}</div>
+      <div class="meta">
+        <span class="ws-state-${f.state}">●</span> ${f.state} ·
+        ${f.msg_count} mesaj · ${when}
+      </div>`;
+    li.onclick = () => wsSelect(f.flow_id, f.state);
+    ul.appendChild(li);
+  }
+}
+
+function wsSelect(flowId, state) {
+  const changed = flowId !== ws.flowId;
+  ws.flowId = flowId;
+  ws.state = state;
+  if (changed) { ws.lastId = 0; $("#ws-messages").innerHTML = ""; }
+  $("#ws-send").disabled = state !== "open";
+  $("#ws-msg-head").textContent =
+    `${flowId.slice(0, 8)}… · ${state}` + (state === "open" ? " · enjeksiyon aktif" : " · bağlantı kapalı");
+  wsLoadFlows();
+  wsLoadMessages(true);
+}
+
+async function wsLoadMessages(reset) {
+  if (!ws.flowId) return;
+  if (reset) { ws.lastId = 0; $("#ws-messages").innerHTML = ""; }
+  const res = await fetch(`/api/ws/flows/${ws.flowId}/messages?after_id=${ws.lastId}`);
+  if (!res.ok) return;
+  const data = await res.json();
+  const box = $("#ws-messages");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  for (const m of data.messages) {
+    ws.lastId = Math.max(ws.lastId, m.id);
+    const div = document.createElement("div");
+    div.className = "ws-msg " + m.direction + (m.injected ? " injected" : "");
+    const arrow = m.direction === "c2s" ? "▲" : "▼";
+    const when = new Date(m.created_at * 1000).toLocaleTimeString();
+    const body = m.type === "text" && m.content.text != null
+      ? m.content.text
+      : `[${m.type}, ${m.content.size} bayt] ${m.content.base64 || ""}`;
+    div.innerHTML = `<span class="dir">${arrow}</span>${escapeHtml(body)}` +
+      `<span class="t">${when}</span>` + (m.injected ? `<span class="inj">⟵ enjekte</span>` : "");
+    box.appendChild(div);
+  }
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+$("#ws-refresh").onclick = wsLoadFlows;
+
+$("#ws-send").onclick = async () => {
+  if (!ws.flowId) return;
+  const type = $("#ws-type").value;
+  const payload = { flow_id: ws.flowId, direction: $("#ws-dir").value, type };
+  const body = $("#ws-inject-body").value;
+  if (type === "binary") payload.content_base64 = body.trim();
+  else payload.content_text = body;
+  $("#ws-inject-state").textContent = "gönderiliyor…";
+  const res = await fetch("/api/ws/inject", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) { $("#ws-inject-state").textContent = "⚠ " + (data.detail || "hata"); return; }
+  // enjeksiyon durumunu yokla
+  const id = data.inject_id;
+  let tries = 0;
+  const check = async () => {
+    const r = await fetch("/api/ws/inject/" + id);
+    const s = await r.json();
+    if (s.status === "pending" && tries++ < 15) { setTimeout(check, 300); return; }
+    const map = { done: "✓ gönderildi", gone: "⚠ bağlantı kapalı", error: "⚠ " + (s.error || "hata"), pending: "zaman aşımı" };
+    $("#ws-inject-state").textContent = map[s.status] || s.status;
+    wsLoadMessages(false);
+  };
+  check();
+  $("#ws-inject-body").value = "";
+};
+
+function startWsPolling() {
+  stopWsPolling();
+  ws.poll = setInterval(() => { wsLoadFlows(); wsLoadMessages(false); }, 1500);
+}
+function stopWsPolling() { if (ws.poll) { clearInterval(ws.poll); ws.poll = null; } }
 
 // ---- Kopyalama ---------------------------------------------------------
 async function copyText(text) {

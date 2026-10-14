@@ -37,6 +37,7 @@
         <button class="tab" data-pane="repeater">Repeater</button>
         <button class="tab" data-pane="inspector">Inspector</button>
         <button class="tab" data-pane="intruder">Intruder</button>
+        <button class="tab" data-pane="websocket">WebSocket</button>
         <button class="tab" data-pane="oast">OAST</button>
         <button class="tab" data-pane="decoder">Decoder</button>
         <button class="tab" data-pane="jwt">JWT</button>
@@ -143,6 +144,32 @@
         </div>
         <label class="lbl">Tam yanıt <span id="intr-detail-idx" class="hint"></span></label>
         <pre id="intr-detail" class="raw"></pre>
+      </div>
+
+      <!-- WebSocket -->
+      <div class="pane" id="pane-websocket">
+        <div class="ws-layout">
+          <div class="ws-conns">
+            <div class="lbl">Bağlantılar <button id="ws-refresh" class="mini">yenile</button></div>
+            <ul id="ws-conn-list"></ul>
+          </div>
+          <div class="ws-main">
+            <div id="ws-msg-head" class="insp-head">Bir WebSocket bağlantısı seçin.</div>
+            <div class="ws-msg-wrap"><div id="ws-messages"></div></div>
+            <div class="ws-inject">
+              <div class="rep-row">
+                <select id="ws-dir">
+                  <option value="c2s">▲ client → server</option>
+                  <option value="s2c">▼ server → client</option>
+                </select>
+                <select id="ws-type"><option value="text">text</option><option value="binary">binary (base64)</option></select>
+                <button id="ws-send" disabled>Enjekte et</button>
+                <span id="ws-inject-state" class="hint"></span>
+              </div>
+              <textarea id="ws-inject-body" rows="3" spellcheck="false" placeholder="gönderilecek mesaj"></textarea>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- OAST -->

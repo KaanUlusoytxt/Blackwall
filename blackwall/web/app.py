@@ -527,6 +527,81 @@ def api_oast_interaction(index: int):
 
 
 # ---------------------------------------------------------------------------
+# WebSocket (yakalama görüntüleme + enjeksiyon kuyruğu)
+# ---------------------------------------------------------------------------
+class WsInjectRequest(BaseModel):
+    flow_id: str
+    direction: str = "c2s"       # c2s | s2c
+    type: str = "text"           # text | binary
+    content_text: Optional[str] = None
+    content_base64: Optional[str] = None
+
+
+@app.get("/api/ws/flows")
+def api_ws_flows():
+    conn = db.connect()
+    try:
+        return {"flows": db.ws_list_flows(conn)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/ws/flows/{flow_id}/messages")
+def api_ws_messages(flow_id: str, after_id: int = 0):
+    conn = db.connect()
+    try:
+        return {"messages": db.ws_list_messages(conn, flow_id, after_id=after_id)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/ws/inject")
+def api_ws_inject(reqdata: WsInjectRequest):
+    if reqdata.direction not in ("c2s", "s2c"):
+        raise HTTPException(400, "direction c2s veya s2c olmalı")
+    if reqdata.content_base64 is not None:
+        content = base64.b64decode(reqdata.content_base64)
+    elif reqdata.content_text is not None:
+        content = reqdata.content_text.encode("utf-8")
+    else:
+        content = b""
+
+    conn = db.connect()
+    try:
+        flow = conn.execute(
+            "SELECT state FROM ws_flows WHERE flow_id=?", (reqdata.flow_id,)
+        ).fetchone()
+        if flow is None:
+            raise HTTPException(404, "WebSocket akışı bulunamadı")
+        if flow["state"] != "open":
+            raise HTTPException(409, "Bağlantı artık açık değil; mesaj gönderilemez")
+        inject_id = db.ws_enqueue_inject(
+            conn,
+            flow_id=reqdata.flow_id,
+            direction=reqdata.direction,
+            type=reqdata.type,
+            content=content,
+            created_at=time.time(),
+        )
+    finally:
+        conn.close()
+    # addon kuyruğu ~0.4s içinde işler; durum ayrı endpoint'ten yoklanır.
+    return {"inject_id": inject_id, "status": "pending"}
+
+
+@app.get("/api/ws/inject/{inject_id}")
+def api_ws_inject_status(inject_id: int):
+    conn = db.connect()
+    try:
+        row = db.ws_get_inject(conn, inject_id)
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(404, "Enjeksiyon kaydı bulunamadı")
+    return row
+
+
+# ---------------------------------------------------------------------------
 # Statik UI
 # ---------------------------------------------------------------------------
 @app.get("/")

@@ -8,7 +8,7 @@ mitmproxy'yi motor alan, web arayüzlü bir pentest aracı. **Faz 1** kapsamı:
 
 > ⚠️ Yalnızca yetkili olduğunuz hedeflerde / kendi sistemlerinizde kullanın.
 
-HTTP/2 ve WebSocket bilerek kapsam dışıdır (sonraki faz).
+HTTP/2 bilerek kapsam dışıdır (sonraki faz). WebSocket desteği eklendi (aşağıya bakın).
 
 ---
 
@@ -184,6 +184,20 @@ curl -x http://127.0.0.1:8080 \
     Düzenleyip **alg:none olarak üret** ya da bir secret girip **HS256 imzala**.
     Çıkan token kopyalanabilir. HMAC yerel olarak (hmac/hashlib) hesaplanır,
     dış servis kullanılmaz.
+  - **WebSocket** sekmesi: proxy'den geçen WebSocket trafiği.
+    - Addon, yükseltilen her bağlantıyı (`websocket_start`) ve her mesajı
+      (`websocket_message`) yakalar: yön (client→server / server→client), tip
+      (text/binary), zaman ve içerik `ws_flows` / `ws_messages` tablolarına yazılır.
+      History'den ayrı, **bağlantıya göre gruplu** gösterilir.
+    - Sol listeden bir bağlantı seçilir; sağda mesajlar kronolojik akar
+      (▲ c→s sarı, ▼ s→c yeşil). Yeni mesajlar canlı eklenir.
+    - **Enjeksiyon (Repeater karşılığı):** bağlantı hâlâ açıksa yön (c2s/s2c) ve
+      tip seçip mesaj gönderilir — mesaj **gerçekten** canlı bağlantıya iletilir
+      ve karşı tarafın yanıtı akışta görünür. Enjekte mesajlar vurgulanır ve
+      "⟵ enjekte" ile işaretlenir. Bağlantı kapandıysa gönderim reddedilir.
+    - *Nasıl çalışır:* web süreci enjeksiyon isteğini `ws_inject` kuyruğuna yazar;
+      mitmproxy sürecindeki addon kuyruğu yoklar ve canlı akışa `inject.websocket`
+      komutuyla mesajı iletir (iki süreç yalnızca SQLite paylaşır).
 
 ---
 
@@ -203,10 +217,14 @@ tarayıcı/cihaz ──▶ mitmdump (addon.py) ──▶ hedef
 
 - `blackwall/db.py` — SQLite şeması ve erişim fonksiyonları. Addon ve web aynı
   dosyayı WAL modunda paylaşır.
-- `blackwall/addon.py` — `response`/`error` olaylarında akışı kaydeden addon.
-- `blackwall/web/app.py` — History/detay API'si ve Repeater endpoint'i.
+- `blackwall/addon.py` — HTTP (`response`/`error`) ve WebSocket
+  (`websocket_start`/`message`/`end`) olaylarını kaydeden addon; `ws_inject`
+  kuyruğunu işleyip canlı bağlantılara mesaj enjekte eder.
+- `blackwall/web/app.py` — History/Repeater/Inspector/Intruder/OAST/WebSocket API'leri.
+- `blackwall/oast.py` — interactsh (OAST) istemcisi (saf Python).
+- `blackwall/tools.py` — Decoder/JWT/Intruder yardımcıları.
 - `blackwall/web/static/` — tek sayfalık arayüz (vanilla JS).
 
 ## Yol haritası
 
-- **Faz 2:** HTTP/2, WebSocket, akış değiştirme (intercept), scope/filtre kuralları.
+- **Faz 2:** HTTP/2, akış değiştirme (intercept), scope/filtre kuralları.

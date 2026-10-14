@@ -38,6 +38,46 @@ CREATE TABLE IF NOT EXISTS flows (
 );
 CREATE INDEX IF NOT EXISTS idx_flows_created_at ON flows (created_at);
 CREATE INDEX IF NOT EXISTS idx_flows_host ON flows (host);
+
+-- WebSocket bağlantıları (her yükseltilmiş HTTP akışı için bir satır)
+CREATE TABLE IF NOT EXISTS ws_flows (
+    flow_id      TEXT PRIMARY KEY,
+    created_at   REAL NOT NULL,
+    host         TEXT,
+    port         INTEGER,
+    path         TEXT,
+    url          TEXT,
+    state        TEXT NOT NULL DEFAULT 'open',  -- open | closed | error
+    closed_at    REAL,
+    close_code   INTEGER,
+    close_reason TEXT
+);
+
+-- WebSocket mesajları
+CREATE TABLE IF NOT EXISTS ws_messages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    flow_id    TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    direction  TEXT NOT NULL,   -- c2s (client→server) | s2c (server→client)
+    type       TEXT NOT NULL,   -- text | binary
+    content    BLOB,
+    injected   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_ws_messages_flow ON ws_messages (flow_id, id);
+
+-- Enjeksiyon kuyruğu: web süreci yazar, addon (mitmproxy süreci) işler
+CREATE TABLE IF NOT EXISTS ws_inject (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    flow_id      TEXT NOT NULL,
+    direction    TEXT NOT NULL,  -- c2s | s2c
+    type         TEXT NOT NULL,  -- text | binary
+    content      BLOB,
+    created_at   REAL NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'pending',  -- pending | done | gone | error
+    error        TEXT,
+    processed_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_ws_inject_status ON ws_inject (status, id);
 """
 
 
@@ -181,3 +221,138 @@ def get_flow_raw(conn: sqlite3.Connection, flow_id: int) -> Optional[sqlite3.Row
 
 def clear_flows(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM flows")
+
+
+# ---------------------------------------------------------------------------
+# WebSocket
+# ---------------------------------------------------------------------------
+def ws_flow_start(
+    conn: sqlite3.Connection,
+    *,
+    flow_id: str,
+    created_at: float,
+    host: str,
+    port: int,
+    path: str,
+    url: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO ws_flows (flow_id, created_at, host, port, path, url, state)
+        VALUES (?,?,?,?,?,?, 'open')
+        ON CONFLICT(flow_id) DO UPDATE SET state='open'
+        """,
+        (flow_id, created_at, host, port, path, url),
+    )
+
+
+def ws_flow_end(
+    conn: sqlite3.Connection,
+    *,
+    flow_id: str,
+    closed_at: float,
+    state: str = "closed",
+    close_code: Optional[int] = None,
+    close_reason: Optional[str] = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE ws_flows
+        SET state=?, closed_at=?, close_code=?, close_reason=?
+        WHERE flow_id=?
+        """,
+        (state, closed_at, close_code, close_reason, flow_id),
+    )
+
+
+def ws_insert_message(
+    conn: sqlite3.Connection,
+    *,
+    flow_id: str,
+    created_at: float,
+    direction: str,
+    type: str,
+    content: Optional[bytes],
+    injected: bool = False,
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO ws_messages (flow_id, created_at, direction, type, content, injected)
+        VALUES (?,?,?,?,?,?)
+        """,
+        (flow_id, created_at, direction, type, content, 1 if injected else 0),
+    )
+    return int(cur.lastrowid)
+
+
+def ws_list_flows(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT f.*,
+               (SELECT COUNT(*) FROM ws_messages m WHERE m.flow_id=f.flow_id) AS msg_count,
+               (SELECT MAX(created_at) FROM ws_messages m WHERE m.flow_id=f.flow_id) AS last_msg_at
+        FROM ws_flows f
+        ORDER BY f.created_at DESC
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def ws_list_messages(conn: sqlite3.Connection, flow_id: str, after_id: int = 0) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM ws_messages WHERE flow_id=? AND id>? ORDER BY id ASC",
+        (flow_id, after_id),
+    ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["content"] = _decode_body(d.get("content"))
+        d["injected"] = bool(d["injected"])
+        out.append(d)
+    return out
+
+
+# -- Enjeksiyon kuyruğu -----------------------------------------------------
+def ws_enqueue_inject(
+    conn: sqlite3.Connection,
+    *,
+    flow_id: str,
+    direction: str,
+    type: str,
+    content: Optional[bytes],
+    created_at: float,
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO ws_inject (flow_id, direction, type, content, created_at, status)
+        VALUES (?,?,?,?,?, 'pending')
+        """,
+        (flow_id, direction, type, content, created_at),
+    )
+    return int(cur.lastrowid)
+
+
+def ws_pending_injects(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM ws_inject WHERE status='pending' ORDER BY id ASC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def ws_mark_inject(
+    conn: sqlite3.Connection,
+    inject_id: int,
+    status: str,
+    *,
+    processed_at: float,
+    error: Optional[str] = None,
+) -> None:
+    conn.execute(
+        "UPDATE ws_inject SET status=?, error=?, processed_at=? WHERE id=?",
+        (status, error, processed_at, inject_id),
+    )
+
+
+def ws_get_inject(conn: sqlite3.Connection, inject_id: int) -> Optional[dict]:
+    row = conn.execute("SELECT id, flow_id, direction, type, status, error FROM ws_inject WHERE id=?", (inject_id,)).fetchone()
+    return dict(row) if row else None
