@@ -237,9 +237,14 @@ curl -x http://127.0.0.1:8080 \
       tamponlaması için beklenen süre), `timeout` ve `read-idle` ayarlanabilir.
     - **Seçili isteği yükle**: History/Repeater'daki isteği alır — TÜM header'lar
       (cookie dahil) ve gövde (csrf dahil) **birebir** korunur. Hedef host/port/şema
-      flow'dan çözülür (Host satırına güvenilmez; host elle doldurulmaz). İstek
-      **canonical HTTP/1.1** olarak kurulur ve `Content-Length` gövdenin gerçek
-      byte uzunluğundan **yeniden hesaplanır** — Repeater ile aynı isteği gönderir.
+      flow'dan çözülür (Host satırına güvenilmez; host elle doldurulmaz).
+    - Gönderilen ham byte dizisi, **Repeater'ın (httpx) gönderdiğiyle birebir
+      aynıdır**: payload Repeater'la aynı httpx yolundan kurulup httpx'in tel (wire)
+      byte'ları olarak yazılır (Host başlığı önde, aynı başlık ekleme/sıralaması,
+      `Content-Length` gerçek gövdeden). TLS'te SNI gönderilir ve ALPN `http/1.1`'dir
+      (Repeater'ın TLS'iyle aynı). Son baytı ayırma (last-byte sync) korunur.
+    - `N=1` tek istek gönderir. Gönderilen istek, debug için metin veya **hex dump**
+      (checkbox) olarak gösterilir.
     - **Sonuç tablosu:** her bağlantının status, yanıt uzunluğu, son baytın
       gönderildiği an (`@ms`) ve yanıtın vardığı an (`@ms`). Son-bayt anlarının
       yayılımı (`sync ±…ms`) senkron kalitesini gösterir.

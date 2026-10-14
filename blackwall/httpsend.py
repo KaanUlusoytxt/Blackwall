@@ -26,19 +26,34 @@ def recompute_headers(
     return out
 
 
+def request_wire_bytes(req: httpx.Request) -> bytes:
+    """httpx isteğini TAM tel (wire) byte dizisi olarak üretir.
+
+    httpcore'un HTTP/1.1 üzerinde gerçekte gönderdiği biçim: request line,
+    `req.headers.raw` sırasıyla başlıklar, boş satır, gövde. Böylece Race ham
+    sokete bu byte'ları yazdığında Repeater'ın (httpx) gönderdiğiyle birebir aynı olur.
+    """
+    target = req.url.raw_path  # bytes: path?query (origin-form)
+    out = bytearray()
+    out += req.method.encode("ascii") + b" " + target + b" HTTP/1.1\r\n"
+    # httpcore tel üzerinde Host başlığını en başa alır; aynı sırayı üret.
+    raw_headers = list(req.headers.raw)
+    host = [(k, v) for k, v in raw_headers if k.lower() == b"host"]
+    rest = [(k, v) for k, v in raw_headers if k.lower() != b"host"]
+    for k, v in host + rest:
+        out += k + b": " + v + b"\r\n"
+    out += b"\r\n"
+    out += req.content or b""
+    return bytes(out)
+
+
 def render_sent(req: httpx.Request) -> str:
     """httpx'in göndereceği isteği ham metin olarak üretir (hata ayıklama/görüntü)."""
-    target = req.url.raw_path.decode("ascii", "replace")
-    lines = [f"{req.method} {target} HTTP/1.1"]
-    for k, v in req.headers.raw:
-        lines.append(f"{k.decode('latin-1')}: {v.decode('latin-1')}")
-    head = "\r\n".join(lines) + "\r\n\r\n"
-    body = req.content or b""
+    wire = request_wire_bytes(req)
     try:
-        body_text = body.decode("utf-8")
+        return wire.decode("utf-8")
     except UnicodeDecodeError:
-        body_text = body.decode("latin-1")
-    return head + body_text
+        return wire.decode("latin-1")
 
 
 def build_request(

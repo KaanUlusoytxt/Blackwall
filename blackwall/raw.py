@@ -83,7 +83,12 @@ def open_connection(
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        # ALPN ayarlanmaz → sunucu HTTP/1.1 kullanır.
+        # Repeater'ın (httpx) TLS'iyle aynı: ALPN yalnızca http/1.1 (h2'ye çıkma).
+        try:
+            ctx.set_alpn_protocols(["http/1.1"])
+        except NotImplementedError:
+            pass
+        # SNI gönderilir (server_hostname); IP için gönderilemeyebilir.
         server_hostname = sni if sni else host
         try:
             sock = ctx.wrap_socket(sock, server_hostname=server_hostname)
@@ -91,6 +96,17 @@ def open_connection(
             sock = ctx.wrap_socket(sock, server_hostname=None)
         tls_version = sock.version()
     return sock, tls_version
+
+
+def hexdump(data: bytes) -> str:
+    """Byte dizisini klasik hex dump biçiminde döndürür (debug)."""
+    lines = []
+    for off in range(0, len(data), 16):
+        chunk = data[off:off + 16]
+        hexpart = " ".join(f"{b:02x}" for b in chunk)
+        asc = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        lines.append(f"{off:08x}  {hexpart:<47}  {asc}")
+    return "\n".join(lines)
 
 
 def _recv_response(sock: socket.socket, total_timeout: float, read_idle: float) -> bytes:
@@ -357,7 +373,7 @@ def race_last_byte(
     """
     if len(payload) < 1:
         return {"error": "boş istek gönderilemez", "results": [], "count": 0}
-    count = max(2, min(count, MAX_RACE))
+    count = max(1, min(count, MAX_RACE))   # N=1 → tek istek
     prefix, last = payload[:-1], payload[-1:]
     results: list[Optional[dict]] = [None] * count
     barrier = threading.Barrier(count)

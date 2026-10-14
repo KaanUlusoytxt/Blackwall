@@ -682,14 +682,20 @@ async def api_race_run(reqdata: RaceRequest):
     if not (1 <= port <= 65535):
         raise HTTPException(400, "port 1-65535 arası olmalı")
 
-    # İstek Host: satırından DEĞİL, canonical olarak yeniden kurulur:
-    # request line HTTP/1.1, TÜM header'lar (cookie) + gövde (csrf) birebir,
-    # Content-Length gövdenin gerçek uzunluğundan hesaplanır.
+    # Payload, Repeater ile BİREBİR aynı httpx yolundan üretilir ve httpx'in tel
+    # (wire) byte'ları ham sokete yazılır → header ekleme/sıralama/CRLF/CL httpx ile
+    # aynı. Hedef Host: satırından değil, flow'un host/port/şemasından çözülür.
     try:
         method, path, headers, body = tools.parse_request(reqdata.request)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    payload = tools.build_http11_request(method, path, headers, body)
+    scheme = "https" if reqdata.tls else "http"
+    url = tools.resolve_url(scheme, host, port, path)
+    with httpx.Client() as client:
+        req, _ = httpsend.build_request(
+            client, method=method, url=url, headers=headers, body=body
+        )
+    payload = httpsend.request_wire_bytes(req)
     if not payload:
         raise HTTPException(400, "boş istek gönderilemez")
 
@@ -705,11 +711,9 @@ async def api_race_run(reqdata: RaceRequest):
         prefix_delay_ms=reqdata.prefix_delay_ms,
         sni=(reqdata.sni.strip() if reqdata.sni else None),
     )
-    # Gönderilen ham istek (tüm bağlantılarda aynı) — UI'da debug için gösterilir.
-    try:
-        result["sent_request"] = payload.decode("latin-1")
-    except Exception:
-        result["sent_request"] = ""
+    # Gönderilen ham istek (tüm bağlantılarda aynı) — debug için metin + hex dump.
+    result["sent_request"] = payload.decode("latin-1")
+    result["sent_request_hex"] = raw.hexdump(payload)
     return result
 
 

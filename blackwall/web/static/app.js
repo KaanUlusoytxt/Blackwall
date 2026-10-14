@@ -899,16 +899,21 @@ function showRaceDetail(index) {
   const resp = r.response_base64
     ? bytesToLatin1(b64ToBytes(r.response_base64))
     : (r.error ? "HATA: " + r.error : "(yanıt yok)");
-  const sent = (lastRaceData && lastRaceData.sent_request) || "(yok)";
+  const hex = $("#race-hex").checked;
+  const sent = lastRaceData
+    ? (hex ? (lastRaceData.sent_request_hex || "") : (lastRaceData.sent_request || ""))
+    : "(yok)";
+  const label = hex ? "GÖNDERİLEN İSTEK (hex, tüm bağlantılarda aynı)"
+                    : "GÖNDERİLEN İSTEK (tüm bağlantılarda aynı)";
   $("#race-detail").textContent =
-    "=== GÖNDERİLEN İSTEK (tüm bağlantılarda aynı) ===\n" + sent +
-    "\n\n=== YANIT ===\n" + resp;
+    "=== " + label + " ===\n" + sent + "\n\n=== YANIT ===\n" + resp;
   for (const tr of $("#race-tbody").querySelectorAll("tr")) {
     tr.classList.toggle("sel", tr.firstElementChild && tr.firstElementChild.textContent === String(index));
   }
 }
 
 $("#race-run").onclick = raceRun;
+$("#race-hex").onchange = () => { if (raceSel.idx != null) showRaceDetail(raceSel.idx); };
 
 // ---- WebSocket ---------------------------------------------------------
 const ws = { flowId: null, state: null, lastId: 0, poll: null };
