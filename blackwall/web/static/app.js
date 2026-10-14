@@ -823,14 +823,27 @@ rawHint();
 let lastRaceData = null;
 const raceSel = { idx: null };
 
+// Seçili History/Repeater isteğini yükle: tüm header'lar + body birebir,
+// request line HTTP/1.1; hedef host/port/şema flow'dan (Host satırına güvenme).
+$("#race-load").onclick = () => {
+  if (!current) { alert("Önce History'den bir istek seçin."); return; }
+  const line = `${current.method} ${current.path} HTTP/1.1`;
+  const hdr = current.req_headers.map(([k, v]) => `${k}: ${v}`).join("\n");
+  const body = current.req_body && current.req_body.text != null ? current.req_body.text : "";
+  $("#race-req").value = line + "\n" + hdr + "\n\n" + body;
+  $("#race-host").value = current.host;
+  $("#race-port").value = current.port;
+  $("#race-tls").checked = current.scheme === "https";
+  $("#race-sni").value = "";
+};
+
 async function raceRun() {
   const btn = $("#race-run");
   btn.disabled = true; $("#race-state").textContent = "saldırı sürüyor…";
   const payload = {
     host: $("#race-host").value.trim(),
-    port: parseInt($("#race-port").value, 10) || 443,
+    port: parseInt($("#race-port").value, 10) || (($("#race-tls").checked) ? 443 : 80),
     tls: $("#race-tls").checked,
-    mode: $("#race-mode").value,
     request: $("#race-req").value,
     count: parseInt($("#race-count").value, 10) || 20,
     timeout: parseFloat($("#race-timeout").value) || 10,
@@ -883,9 +896,13 @@ function showRaceDetail(index) {
   if (!r) return;
   $("#race-detail-idx").textContent =
     `#${index} · ${r.signature}` + (r.distinct ? " · ★ farklı sonuç" : "");
-  $("#race-detail").textContent = r.response_base64
+  const resp = r.response_base64
     ? bytesToLatin1(b64ToBytes(r.response_base64))
     : (r.error ? "HATA: " + r.error : "(yanıt yok)");
+  const sent = (lastRaceData && lastRaceData.sent_request) || "(yok)";
+  $("#race-detail").textContent =
+    "=== GÖNDERİLEN İSTEK (tüm bağlantılarda aynı) ===\n" + sent +
+    "\n\n=== YANIT ===\n" + resp;
   for (const tr of $("#race-tbody").querySelectorAll("tr")) {
     tr.classList.toggle("sel", tr.firstElementChild && tr.firstElementChild.textContent === String(index));
   }

@@ -293,21 +293,48 @@ def parse_request(text: str) -> tuple[str, str, list[tuple[str, str]], bytes]:
     return method, path, headers, body.encode("utf-8")
 
 
-def resolve_url(scheme: str, host: str, port: Optional[int], path: str) -> str:
-    """Bağlantı hedefini şema+host+port+path'ten güvenli biçimde kurar.
+def build_http11_request(
+    method: str, path: str, headers: list[tuple[str, str]], body: Optional[bytes]
+) -> bytes:
+    """Canonical HTTP/1.1 ham istek byte'ları üretir.
 
-    host içinde yanlışlıkla şema/path/boşluk/port olsa bile ayıklar.
+    * Request line her zaman HTTP/1.1.
+    * TÜM header'lar (cookie dahil) sırası korunarak birebir yazılır.
+    * Content-Length GÖVDENİN gerçek byte uzunluğundan hesaplanır (varsa yerinde
+      güncellenir, yoksa eklenir; gövde boşsa atılır).
+    * Gövde (csrf dahil) olduğu gibi eklenir.
     """
-    scheme = (scheme or "").strip().lower()
-    if scheme not in ("http", "https"):
-        scheme = "http"
+    body = body or b""
+    out: list[tuple[str, str]] = []
+    cl_set = False
+    for k, v in headers:
+        if k.lower() == "content-length":
+            if body:
+                out.append((k, str(len(body))))   # aynı konumda düzelt
+                cl_set = True
+            # gövde yoksa Content-Length'i tamamen at
+        else:
+            out.append((k, v))
+    if body and not cl_set:
+        out.append(("Content-Length", str(len(body))))
 
+    lines = [f"{method} {path} HTTP/1.1"]
+    lines += [f"{k}: {v}" for k, v in out]
+    head_str = "\r\n".join(lines) + "\r\n\r\n"
+    try:
+        head = head_str.encode("latin-1")
+    except UnicodeEncodeError:
+        head = head_str.encode("utf-8")
+    return head + body
+
+
+def clean_host(host: str, port: Optional[int] = None) -> tuple[str, Optional[int]]:
+    """host içindeki şema/path/boşluk/gömülü port'u ayıklar → (host, port)."""
     host = (host or "").strip()
     if "://" in host:                      # şema önekini at
         host = host.split("://", 1)[1]
     host = host.split("/", 1)[0].strip()   # path ve boşluk at
     host = host.split("?", 1)[0].strip()
-
     # gömülü port (IPv6 dışında)
     if not host.startswith("[") and host.count(":") == 1:
         h, _, p = host.partition(":")
@@ -317,6 +344,19 @@ def resolve_url(scheme: str, host: str, port: Optional[int], path: str) -> str:
                 port = int(p)
             except ValueError:
                 pass
+    return host, port
+
+
+def resolve_url(scheme: str, host: str, port: Optional[int], path: str) -> str:
+    """Bağlantı hedefini şema+host+port+path'ten güvenli biçimde kurar.
+
+    host içinde yanlışlıkla şema/path/boşluk/port olsa bile ayıklar.
+    """
+    scheme = (scheme or "").strip().lower()
+    if scheme not in ("http", "https"):
+        scheme = "http"
+
+    host, port = clean_host(host, port)
 
     if not host:
         raise ValueError("hedef host çözülemedi")

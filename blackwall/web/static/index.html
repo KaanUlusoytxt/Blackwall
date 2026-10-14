@@ -186,25 +186,21 @@
       <!-- Race -->
       <div class="pane" id="pane-race">
         <div class="rep-row">
-          <label class="inline">host <input id="race-host" type="text" placeholder="hedef host / IP" /></label>
+          <button id="race-load">⟵ Seçili isteği yükle</button>
+          <label class="inline">host <input id="race-host" type="text" placeholder="(yüklenince otomatik)" /></label>
           <label class="inline">port <input id="race-port" type="number" value="443" min="1" max="65535" /></label>
           <label class="inline"><input id="race-tls" type="checkbox" checked /> TLS</label>
           <label class="inline">SNI <input id="race-sni" type="text" placeholder="(host)" /></label>
         </div>
         <div class="rep-row">
           <label class="inline">N (bağlantı) <input id="race-count" type="number" value="20" min="2" max="255" /></label>
-          <label class="inline">satır sonu
-            <select id="race-mode">
-              <option value="crlf">CRLF</option><option value="lf">LF</option><option value="escape">escape</option>
-            </select>
-          </label>
           <label class="inline">prefix gecikme(ms) <input id="race-prefix" type="number" value="100" min="0" /></label>
           <label class="inline">timeout(s) <input id="race-timeout" type="number" value="10" min="1" step="0.5" /></label>
           <label class="inline">read-idle(s) <input id="race-idle" type="number" value="1" min="0.1" step="0.1" /></label>
         </div>
-        <span class="hint">Last-byte sync: her istek son baytı hariç gönderilir; tüm bağlantılar hazır olunca son baytlar aynı anda basılır.</span>
+        <span class="hint">Last-byte sync: her istek son baytı hariç gönderilir; tüm bağlantılar hazır olunca son baytlar aynı anda basılır. İstek canonical HTTP/1.1 olarak kurulur, Content-Length gövdeye göre hesaplanır; header/body birebir korunur.</span>
         <label class="lbl">Ham istek</label>
-        <textarea id="race-req" class="raw-ta" rows="8" spellcheck="false" placeholder="POST /api/redeem HTTP/1.1&#10;Host: hedef&#10;Content-Length: ...&#10;Connection: close&#10;&#10;code=XYZ"></textarea>
+        <textarea id="race-req" class="raw-ta" rows="8" spellcheck="false" placeholder="'Seçili isteği yükle' ile History'den bir isteği alın (tüm header'lar + body korunur)"></textarea>
         <div class="rep-row">
           <button id="race-run">Saldır (N kez)</button>
           <span id="race-state" class="hint"></span>

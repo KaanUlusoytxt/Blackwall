@@ -235,13 +235,18 @@ curl -x http://127.0.0.1:8080 \
       ~eşzamanlı varır. (HTTP/2 single-packet tekniği kapsam dışı.)
     - `N` (2–255), `prefix gecikme` (son bayttan önce sunucunun prefix'i
       tamponlaması için beklenen süre), `timeout` ve `read-idle` ayarlanabilir.
-      TLS/SNI ve satır sonu modu Raw ile aynıdır.
+    - **Seçili isteği yükle**: History/Repeater'daki isteği alır — TÜM header'lar
+      (cookie dahil) ve gövde (csrf dahil) **birebir** korunur. Hedef host/port/şema
+      flow'dan çözülür (Host satırına güvenilmez; host elle doldurulmaz). İstek
+      **canonical HTTP/1.1** olarak kurulur ve `Content-Length` gövdenin gerçek
+      byte uzunluğundan **yeniden hesaplanır** — Repeater ile aynı isteği gönderir.
     - **Sonuç tablosu:** her bağlantının status, yanıt uzunluğu, son baytın
       gönderildiği an (`@ms`) ve yanıtın vardığı an (`@ms`). Son-bayt anlarının
       yayılımı (`sync ±…ms`) senkron kalitesini gösterir.
     - **Race kazanan** satırlar ayırt edilir: en sık görülen (status, uzunluk)
       imzası "normal" kabul edilir; ondan **farklı** dönen satırlar yeşil
-      vurgulanır ve `★` ile işaretlenir. Satıra tıklayınca tam yanıt görünür.
+      vurgulanır ve `★` ile işaretlenir. Satıra tıklayınca **gönderilen ham istek**
+      (tüm bağlantılarda aynı) ve tam yanıt görünür.
 
 ---
 

@@ -674,23 +674,29 @@ class RaceRequest(BaseModel):
 
 @app.post("/api/race/run")
 async def api_race_run(reqdata: RaceRequest):
-    if not reqdata.host.strip():
+    host, port = tools.clean_host(reqdata.host, reqdata.port)
+    if not host:
         raise HTTPException(400, "host gerekli")
-    if not (1 <= reqdata.port <= 65535):
+    if not port:
+        port = 443 if reqdata.tls else 80
+    if not (1 <= port <= 65535):
         raise HTTPException(400, "port 1-65535 arası olmalı")
-    if reqdata.mode not in ("crlf", "lf", "escape"):
-        raise HTTPException(400, "mode crlf | lf | escape olmalı")
+
+    # İstek Host: satırından DEĞİL, canonical olarak yeniden kurulur:
+    # request line HTTP/1.1, TÜM header'lar (cookie) + gövde (csrf) birebir,
+    # Content-Length gövdenin gerçek uzunluğundan hesaplanır.
     try:
-        payload = raw.encode_payload(reqdata.request, reqdata.mode)
+        method, path, headers, body = tools.parse_request(reqdata.request)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    payload = tools.build_http11_request(method, path, headers, body)
     if not payload:
         raise HTTPException(400, "boş istek gönderilemez")
 
     result = await asyncio.to_thread(
         raw.race_last_byte,
-        host=reqdata.host.strip(),
-        port=reqdata.port,
+        host=host,
+        port=port,
         use_tls=reqdata.tls,
         payload=payload,
         count=reqdata.count,
@@ -699,6 +705,11 @@ async def api_race_run(reqdata: RaceRequest):
         prefix_delay_ms=reqdata.prefix_delay_ms,
         sni=(reqdata.sni.strip() if reqdata.sni else None),
     )
+    # Gönderilen ham istek (tüm bağlantılarda aynı) — UI'da debug için gösterilir.
+    try:
+        result["sent_request"] = payload.decode("latin-1")
+    except Exception:
+        result["sent_request"] = ""
     return result
 
 
