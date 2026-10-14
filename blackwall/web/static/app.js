@@ -60,7 +60,6 @@ async function selectFlow(id) {
   for (const tr of body.querySelectorAll("tr")) {
     if (tr.firstElementChild && tr.firstElementChild.textContent == String(id)) tr.classList.add("sel");
   }
-  loadRepeaterFrom(current);
   renderInspector(current);
 }
 
@@ -88,13 +87,115 @@ function renderDetail(f) {
   }
 }
 
-// ---- Repeater ----------------------------------------------------------
-function loadRepeaterFrom(f) {
-  $("#rep-method").value = f.method;
-  $("#rep-url").value = f.url;
-  // Proxy katmanına özgü başlıkları ayıklama; kullanıcı elle düzenlesin.
-  $("#rep-headers").value = headersToText(f.req_headers);
-  $("#rep-body").value = f.req_body && f.req_body.text != null ? f.req_body.text : "";
+// ---- Repeater (sekmeli) ------------------------------------------------
+const rep = { tabs: [], activeId: null, seq: 0 };
+
+function repFieldsFromDom() {
+  return {
+    method: $("#rep-method").value,
+    url: $("#rep-url").value,
+    headers: $("#rep-headers").value,
+    body: $("#rep-body").value,
+    verify: $("#rep-verify").checked,
+    follow: $("#rep-follow").checked,
+    resp: $("#rep-resp").textContent,
+  };
+}
+
+function repFieldsToDom(t) {
+  $("#rep-method").value = t.method || "GET";
+  $("#rep-url").value = t.url || "";
+  $("#rep-headers").value = t.headers || "";
+  $("#rep-body").value = t.body || "";
+  $("#rep-verify").checked = !!t.verify;
+  $("#rep-follow").checked = !!t.follow;
+  $("#rep-resp").textContent = t.resp || "";
+}
+
+function repActive() { return rep.tabs.find((t) => t.id === rep.activeId) || null; }
+
+function repSaveActive() {
+  const a = repActive();
+  if (a) Object.assign(a, repFieldsFromDom());
+}
+
+function repSwitch(id) {
+  repSaveActive();
+  rep.activeId = id;
+  const t = repActive();
+  if (t) repFieldsToDom(t);
+  renderRepTabs();
+}
+
+function repNewTab(init, name) {
+  repSaveActive();
+  const id = ++rep.seq;
+  const t = Object.assign(
+    { id, name: name || `Sekme ${id}`, method: "GET", url: "", headers: "", body: "", verify: false, follow: false, resp: "" },
+    init || {},
+  );
+  rep.tabs.push(t);
+  rep.activeId = id;
+  repFieldsToDom(t);
+  renderRepTabs();
+  return t;
+}
+
+function repCloseTab(id) {
+  const i = rep.tabs.findIndex((t) => t.id === id);
+  if (i === -1) return;
+  const wasActive = rep.activeId === id;
+  rep.tabs.splice(i, 1);
+  if (rep.tabs.length === 0) { repNewTab(null, "Sekme"); return; }
+  if (wasActive) {
+    const next = rep.tabs[Math.max(0, i - 1)];
+    rep.activeId = next.id;
+    repFieldsToDom(next);
+  }
+  renderRepTabs();
+}
+
+function repRename(id) {
+  const t = rep.tabs.find((x) => x.id === id);
+  if (!t) return;
+  const name = prompt("Sekme adı:", t.name);
+  if (name != null && name.trim()) { t.name = name.trim(); renderRepTabs(); }
+}
+
+function renderRepTabs() {
+  const bar = $("#rep-tabs");
+  bar.innerHTML = "";
+  for (const t of rep.tabs) {
+    const el = document.createElement("div");
+    el.className = "rep-tab" + (t.id === rep.activeId ? " active" : "");
+    el.title = "çift tıkla: yeniden adlandır";
+    const label = document.createElement("span");
+    label.textContent = t.name;
+    label.onclick = () => repSwitch(t.id);
+    el.ondblclick = () => repRename(t.id);
+    const x = document.createElement("span");
+    x.className = "x"; x.textContent = "×"; x.title = "kapat";
+    x.onclick = (e) => { e.stopPropagation(); repCloseTab(t.id); };
+    el.appendChild(label); el.appendChild(x);
+    bar.appendChild(el);
+  }
+  const add = document.createElement("button");
+  add.className = "rep-tab-add"; add.textContent = "+"; add.title = "yeni sekme";
+  add.onclick = () => repNewTab(null);
+  bar.appendChild(add);
+}
+
+// Bir History/akış kaydından yeni sekme için başlangıç alanları.
+function repInitFromFlow(f) {
+  let name = "istek";
+  try { name = f.method + " " + new URL(f.url).pathname.slice(0, 18); } catch { name = f.method + " " + (f.path || "").slice(0, 18); }
+  return {
+    name,
+    method: f.method,
+    url: f.url,
+    headers: headersToText(f.req_headers),
+    body: f.req_body && f.req_body.text != null ? f.req_body.text : "",
+  };
 }
 
 function parseHeaders(text) {
@@ -139,12 +240,20 @@ async function sendRepeater() {
       $("#rep-resp").textContent =
         statusLine + "\n" + headersToText(f.resp_headers) + "\n\n" + bodyToText(f.resp_body);
     }
+    repSaveActive();   // yanıtı aktif sekmede sakla
     loadFlows();
   } finally {
     btn.disabled = false;
     btn.textContent = "Gönder";
   }
 }
+
+$("#req-to-repeater").onclick = () => {
+  if (!current) { alert("Önce History'den bir istek seçin."); return; }
+  repNewTab(repInitFromFlow(current));
+  const t = document.querySelector('.tab[data-pane="repeater"]');
+  if (t) t.click();
+};
 
 // ---- Sekmeler & olaylar -----------------------------------------------
 for (const tab of document.querySelectorAll(".tab")) {
@@ -1108,3 +1217,6 @@ loadFlows();
 
 // Açılışta aktif OAST oturumu varsa yükle ve pollingi sürdür
 oastStatus().then(() => { if ($("#oast-stop").disabled === false) startOastPolling(); });
+
+// Repeater: açılışta bir boş sekme
+repNewTab(null);

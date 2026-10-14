@@ -131,9 +131,14 @@ curl -x http://127.0.0.1:8080 \
 - **Sağ panel:**
   - **İstek / Yanıt** sekmeleri: seçili akışın ham başlık ve gövdesi. İkili
     (binary) gövdeler base64 gösterilir.
-  - **Repeater** sekmesi: seçili akış otomatik yüklenir. Method, URL, başlıklar
-    (her satır `İsim: değer`) ve gövdeyi düzenleyip **Gönder**'e basın. Yanıt
-    altta görünür ve akış geçmişe de yazılır.
+  - **Repeater** sekmesi: **sekmelidir** — birden çok isteği aynı anda açık
+    tutarsınız. Her sekme kendi method/URL/başlık/gövde ve yanıtını saklar;
+    üstteki çubuktan sekmeler arası geçilir, `+` ile yeni sekme açılır, `×` ile
+    kapatılır, sekme adına **çift tıklayınca** yeniden adlandırılır. Method, URL,
+    başlıklar (her satır `İsim: değer`) ve gövdeyi düzenleyip **Gönder**'e basın;
+    yanıt o sekmede görünür ve akış geçmişe de yazılır.
+    - İstek göndermek için önce **İstek** panelindeki **→ Repeater (yeni sekme)**
+      ile seçili History akışını yeni bir sekmeye alın (mevcut sekmeler ezilmez).
     - *TLS doğrula*: kapalıyken sunucu sertifikası doğrulanmaz (geçersiz/self-signed
       hedefler için pratik). Açıkken normal doğrulama yapılır.
     - *yönlendirme izle*: 3xx yanıtlarını otomatik takip eder.

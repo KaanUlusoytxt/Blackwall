@@ -54,6 +54,13 @@ tbody tr.sel { background: #1f6feb33; }
   font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word;
   background: var(--bg); margin: 0; flex: 1; overflow: auto;
 }
+.rep-tabs { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.rep-tab { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); cursor: pointer; font-size: 12px; white-space: nowrap; }
+.rep-tab.active { border-color: var(--accent); color: var(--fg); background: #1f6feb22; }
+.rep-tab .x { color: var(--muted); cursor: pointer; font-weight: 600; }
+.rep-tab .x:hover { color: var(--err); }
+.rep-tab-add { padding: 3px 9px; border: 1px dashed var(--border); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.rep-tab-add:hover { border-color: var(--accent); color: var(--accent); }
 .rep-row { display: flex; gap: 6px; margin-bottom: 8px; }
 #rep-url { flex: 1; }
 .rep-opts { display: flex; gap: 16px; color: var(--muted); margin-bottom: 8px; }
