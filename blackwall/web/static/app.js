@@ -936,6 +936,7 @@ async function rawSend() {
     port: parseInt($("#raw-port").value, 10) || 80,
     tls: $("#raw-tls").checked,
     http_version: $("#raw-httpver").value,
+    h2_malformed: $("#raw-malformed").checked,
     mode: $("#raw-mode").value,
     request1: $("#raw-req1").value,
     request2: $("#raw-req2").value,
@@ -996,9 +997,15 @@ $("#raw-httpver").onchange = () => {
   if (h2) $("#raw-tls").checked = true;      // h2 ALPN → TLS zorunlu
   $("#raw-tls").disabled = h2;
   $("#raw-mode").disabled = h2;              // h2'de istek parse edilir, satır sonu modu kullanılmaz
+  $("#raw-malformed-wrap").style.display = h2 ? "" : "none";
   $("#raw-state").textContent = h2
-    ? "HTTP/2: ham istek parse edilip geçerli h2 isteği (HEADERS+DATA) olarak gönderilir"
+    ? "HTTP/2: ham istek parse edilip h2 isteği (HEADERS+DATA) olarak gönderilir"
     : "";
+};
+$("#raw-malformed").onchange = () => {
+  $("#raw-state").textContent = $("#raw-malformed").checked
+    ? "malformed: h2 doğrulama/normalizasyon KAPALI; content-length/transfer-encoding gibi header'lar frame'e aynen konur"
+    : "HTTP/2: geçerli istek";
 };
 $("#raw-hex").onchange = () => { if (lastRawData) renderRawResult(lastRawData); };
 rawHint();

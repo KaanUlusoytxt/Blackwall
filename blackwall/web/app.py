@@ -626,6 +626,7 @@ class RawSendRequest(BaseModel):
     port: int = 80
     tls: bool = False
     http_version: str = "1.1"        # 1.1 (ham socket) | 2 (h2)
+    h2_malformed: bool = False       # h2: giden doğrulama/normalizasyon kapalı (smuggling)
     mode: str = "crlf"               # crlf | lf | escape (yalnızca 1.1)
     request1: str = ""
     request2: Optional[str] = None   # aynı socket/bağlantıda ikinci istek
@@ -663,6 +664,7 @@ async def api_raw_send(reqdata: RawSendRequest):
         result = await asyncio.to_thread(
             raw.h2_send, host=host, port=reqdata.port, requests=requests,
             timeout=reqdata.timeout, read_idle=reqdata.read_idle, sni=sni,
+            malformed=reqdata.h2_malformed,
         )
         return result
 

@@ -647,10 +647,9 @@ _H2_FORBIDDEN = {
 }
 
 
-def _render_h2_request_bytes(method, path, authority, headers, body: bytes) -> bytes:
-    lines = [f":method: {method}", f":path: {path}", ":scheme: https",
-             f":authority: {authority}"]
-    lines += [f"{k.lower()}: {v}" for k, v in headers if k.lower() not in _H2_FORBIDDEN]
+def _render_h2_from_parts(pseudo: list, reg: list, body: bytes) -> bytes:
+    """Frame'e giren pseudo + normal header'ları ve gövdeyi okunur metne çevirir."""
+    lines = [f"{k}: {v}" for k, v in pseudo] + [f"{k}: {v}" for k, v in reg]
     head = ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1", "replace")
     return head + (body or b"")
 
@@ -663,19 +662,26 @@ def h2_send(
     timeout: float = 15.0,
     read_idle: float = 3.0,
     sni: Optional[str] = None,
+    malformed: bool = False,
 ) -> dict:
-    """Tek TLS bağlantısı (ALPN h2) üzerinden GEÇERLİ HTTP/2 istek(ler)i gönderir.
+    """Tek TLS bağlantısı (ALPN h2) üzerinden HTTP/2 istek(ler)i gönderir.
 
     requests: [{method, path, headers, body, authority}] — her biri ayrı stream.
     Yanıtlar toplanıp send_raw ile aynı sonuç şekline (requests listesi) çevrilir.
-    Not: burada istekler geçerli ve normal biçimde (end_stream düzgün) gönderilir;
-    malformed/smuggling frame'ler kapsam dışı.
+
+    malformed=False (Katman 1): geçerli istek — bağlantıya özel header'lar (host,
+      content-length, transfer-encoding, connection, ...) atılır, isimler küçültülür,
+      h2 giden doğrulaması açık.
+    malformed=True (h2 smuggling): h2 giden doğrulaması/normalizasyonu KAPALI;
+      normalde yasak header'lar (content-length, transfer-encoding, ...) ham istekte
+      yazıldığı gibi frame'e konur. Yalnızca Host → :authority eşlenir; diğer
+      header'lara (isim/değer) dokunulmaz.
     """
     import h2.config
     import h2.connection
     import h2.events
 
-    result: dict = {"requests": [], "error": None, "tls": True}
+    result: dict = {"requests": [], "error": None, "tls": True, "malformed": malformed}
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -702,9 +708,16 @@ def h2_send(
         return result
 
     try:
-        conn = h2.connection.H2Connection(
-            config=h2.config.H2Configuration(client_side=True)
-        )
+        if malformed:
+            cfg = h2.config.H2Configuration(
+                client_side=True,
+                validate_outbound_headers=False,
+                normalize_outbound_headers=False,
+                split_outbound_cookies=False,
+            )
+        else:
+            cfg = h2.config.H2Configuration(client_side=True)
+        conn = h2.connection.H2Connection(config=cfg)
         conn.initiate_connection()
         tsock.sendall(conn.data_to_send())
 
@@ -714,18 +727,23 @@ def h2_send(
             method, path = rq["method"], rq["path"]
             headers, body = rq["headers"], rq["body"] or b""
             authority = rq.get("authority") or host
-            h2h = [
+            pseudo = [
                 (":method", method), (":path", path),
                 (":scheme", "https"), (":authority", authority),
-            ] + [(k.lower(), v) for k, v in headers if k.lower() not in _H2_FORBIDDEN]
+            ]
+            if malformed:
+                # Host → :authority dışında DOKUNMA: isim/değer aynen, yasak header'lar dahil.
+                reg = [(k, v) for k, v in headers if k.lower() != "host"]
+            else:
+                reg = [(k.lower(), v) for k, v in headers if k.lower() not in _H2_FORBIDDEN]
             sid = conn.get_next_available_stream_id()
-            conn.send_headers(sid, h2h, end_stream=(not body))
+            conn.send_headers(sid, pseudo + reg, end_stream=(not body))
             if body:
                 # Akış kontrolü basit: tipik istek gövdeleri pencereye sığar.
                 conn.send_data(sid, body, end_stream=True)
             meta.append({
                 "sid": sid, "index": i,
-                "sent": _render_h2_request_bytes(method, path, authority, headers, body),
+                "sent": _render_h2_from_parts(pseudo, reg, body),
             })
         tsock.sendall(conn.data_to_send())
 

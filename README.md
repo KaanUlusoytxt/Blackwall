@@ -227,7 +227,13 @@ curl -x http://127.0.0.1:8080 \
         isteğine (pseudo-header'lar `:method/:path/:scheme/:authority` + HEADERS/DATA
         frame) çevrilir, yanıt toplanıp gösterilir. İki istek girilirse iki ayrı
         stream olarak gönderilir. TLS zorunludur; satır sonu modu kullanılmaz.
-        (Malformed/smuggling frame'ler kapsam dışı — sonraki adım.)
+      - **malformed (h2 smuggling)** kutusu: h2'nin giden header doğrulaması ve
+        normalizasyonu kapatılır (`validate_outbound_headers=False`,
+        `normalize_outbound_headers=False`). Normalde yasak olan bağlantıya-özel
+        header'lar (`content-length`, `transfer-encoding`, `connection`, …) ham
+        istekte yazıldığı gibi **frame'e aynen** konur (kütüphane silmez/düzeltmez,
+        isim kasası bile korunur). Yalnızca `Host` → `:authority` eşlenir; diğer
+        header'lara dokunulmaz. (Valid modda bu header'lar atılır ve isimler küçültülür.)
     - **Satır sonu modu:**
       - `CRLF` (varsayılan) — textarea'daki satır sonları `\r\n` yapılır.
       - `LF` — satır sonları `\n` kalır (bare-LF testleri).
