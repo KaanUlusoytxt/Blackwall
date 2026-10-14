@@ -325,6 +325,29 @@ function rawFromFlow(f) {
   return line + "\n" + hdr + "\n\n" + body;
 }
 
+// Hedefi flow'un yapısal alanlarından çıkarır (Repeater ile aynı mantık: Host
+// başlığına değil, flow'un şema/host/port'una dayanır).
+function flowTargetUrl(f) {
+  const defPort = (f.scheme === "https" && f.port === 443) || (f.scheme === "http" && f.port === 80);
+  const netloc = defPort ? f.host : `${f.host}:${f.port}`;
+  return `${f.scheme}://${netloc}`;
+}
+
+// Hedef metnini {scheme, host, port}'a ayırır; şema/path/boşluk olsa bile toparlar.
+function parseTarget(t) {
+  t = (t || "").trim();
+  try {
+    const u = new URL(t.includes("://") ? t : "http://" + t);
+    return {
+      scheme: u.protocol.replace(":", "") || "http",
+      host: u.hostname,
+      port: u.port ? parseInt(u.port, 10) : 0,
+    };
+  } catch {
+    return { scheme: "http", host: t.split("/")[0], port: 0 };
+  }
+}
+
 function countPositions(text) {
   const m = text.match(/§[^§]*§/g);
   return m ? m.length : 0;
@@ -434,7 +457,8 @@ function updateEstimate() {
 $("#intr-load").onclick = () => {
   if (!current) { alert("Önce History'den bir istek seçin."); return; }
   $("#intr-req").value = rawFromFlow(current);
-  $("#intr-scheme").value = current.scheme === "http" ? "http" : "https";
+  // Hedefi (şema+host+port) flow'dan otomatik al — elle Host/https gerekmez.
+  $("#intr-target").value = flowTargetUrl(current);
   rebuildPayloadEditors();
 };
 
@@ -453,9 +477,13 @@ $("#intr-attack").onchange = rebuildPayloadEditors;
 async function intruderStart() {
   const pos = countPositions($("#intr-req").value);
   if (pos === 0) { alert("İstekte §...§ ile en az bir konum işaretleyin."); return; }
+  const tgt = parseTarget($("#intr-target").value);
+  if (!tgt.host) { alert("Hedef boş. Önce 'Seçili isteği yükle' ile bir istek alın ya da hedef girin."); return; }
   const payload = {
     request_text: $("#intr-req").value,
-    scheme: $("#intr-scheme").value,
+    scheme: tgt.scheme,
+    host: tgt.host,
+    port: tgt.port,
     attack: currentAttack(),
     payload_sets: getPayloadSets(),
     concurrency: parseInt($("#intr-conc").value, 10) || 10,

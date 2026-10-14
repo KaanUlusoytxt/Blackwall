@@ -260,3 +260,75 @@ def parse_http(text: str, scheme: str) -> tuple[str, str, list[tuple[str, str]],
         url = f"{scheme}://{host}{target}"
 
     return method, url, headers, body.encode("utf-8")
+
+
+def host_header(headers: list[tuple[str, str]]) -> str:
+    for k, v in headers:
+        if k.lower() == "host":
+            return v
+    return ""
+
+
+def parse_request(text: str) -> tuple[str, str, list[tuple[str, str]], bytes]:
+    """Ham isteği method, path (request-line hedefi), headers, body'ye ayırır.
+
+    URL ÇÖZÜMÜ YAPMAZ — bağlantı hedefi (şema/host/port) ayrıca verilir; böylece
+    Host: satırına bağımlı kalınmaz (Repeater ile aynı hedef mantığı).
+    """
+    text = text.replace("\r\n", "\n")
+    head, _, body = text.partition("\n\n")
+    lines = head.split("\n")
+    if not lines or not lines[0].strip():
+        raise ValueError("boş istek satırı")
+    parts = lines[0].split(" ")
+    method = parts[0].strip()
+    path = parts[1].strip() if len(parts) > 1 else "/"
+
+    headers: list[tuple[str, str]] = []
+    for ln in lines[1:]:
+        if not ln.strip() or ":" not in ln:
+            continue
+        k, v = ln.split(":", 1)
+        headers.append((k.strip(), v.strip()))
+    return method, path, headers, body.encode("utf-8")
+
+
+def resolve_url(scheme: str, host: str, port: Optional[int], path: str) -> str:
+    """Bağlantı hedefini şema+host+port+path'ten güvenli biçimde kurar.
+
+    host içinde yanlışlıkla şema/path/boşluk/port olsa bile ayıklar.
+    """
+    scheme = (scheme or "").strip().lower()
+    if scheme not in ("http", "https"):
+        scheme = "http"
+
+    host = (host or "").strip()
+    if "://" in host:                      # şema önekini at
+        host = host.split("://", 1)[1]
+    host = host.split("/", 1)[0].strip()   # path ve boşluk at
+    host = host.split("?", 1)[0].strip()
+
+    # gömülü port (IPv6 dışında)
+    if not host.startswith("[") and host.count(":") == 1:
+        h, _, p = host.partition(":")
+        host = h.strip()
+        if not port:
+            try:
+                port = int(p)
+            except ValueError:
+                pass
+
+    if not host:
+        raise ValueError("hedef host çözülemedi")
+    if not port:
+        port = 443 if scheme == "https" else 80
+
+    # request-line mutlak URL ise olduğu gibi kullan
+    if path.startswith(("http://", "https://")):
+        return path
+    if not path.startswith("/"):
+        path = "/" + path
+
+    default_port = (scheme == "https" and port == 443) or (scheme == "http" and port == 80)
+    netloc = host if default_port else f"{host}:{port}"
+    return f"{scheme}://{netloc}{path}"

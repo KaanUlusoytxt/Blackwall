@@ -217,6 +217,8 @@ INTRUDER_JOBS: dict[str, dict] = {}
 class IntruderStart(BaseModel):
     request_text: str
     scheme: str = "https"
+    host: str = ""                        # bağlantı hedefi (kaynak flow'dan); boşsa Host başlığından
+    port: int = 0                         # 0 → şemaya göre varsayılan
     attack: str = "sniper"               # sniper | pitchfork | cluster
     payload_sets: list[list[str]] = Field(default_factory=list)
     concurrency: int = 10
@@ -261,8 +263,15 @@ async def _run_intruder(job_id: str) -> None:
                 started = time.perf_counter()
                 sent_raw = concrete  # parse başarısız olursa en azından ham metni sakla
                 try:
-                    # Repeater ile BİREBİR aynı gönderim yolu.
-                    method, url, headers, body = tools.parse_http(concrete, job["scheme"])
+                    # Hedef Host: satırından DEĞİL, kaynak flow'dan (şema+host+port) çözülür;
+                    # path request satırından gelir. Sonra Repeater ile aynı gönderim yolu.
+                    method, path, headers, body = tools.parse_request(concrete)
+                    url = tools.resolve_url(
+                        job["scheme"],
+                        job["host"] or tools.host_header(headers),
+                        job["port"],
+                        path,
+                    )
                     req, sent_raw = httpsend.build_request(
                         client, method=method, url=url, headers=headers, body=body
                     )
@@ -325,6 +334,8 @@ async def api_intruder_start(cfg: IntruderStart):
         "state": "running",
         "attack": cfg.attack,
         "scheme": cfg.scheme,
+        "host": cfg.host.strip(),
+        "port": cfg.port,
         "segments": segments,
         "cases": cases,
         "concurrency": concurrency,
