@@ -161,3 +161,14 @@ label.inline input[type=number] { width: 64px; }
 .ws-msg .inj { color: var(--accent); font-size: 10px; margin-left: 6px; }
 .ws-msg.injected { background: #1f6feb18; }
 #ws-inject-body { width: 100%; font-family: var(--mono); resize: vertical; }
+
+/* Raw */
+.raw-ta { width: 100%; font-family: var(--mono); font-size: 12px; resize: vertical; white-space: pre; overflow-wrap: normal; }
+#raw-host { width: 180px; } #raw-sni { width: 120px; }
+.raw-result { border: 1px solid var(--border); border-radius: 6px; margin: 8px 0; }
+.raw-result .rhead { background: var(--panel); padding: 5px 8px; font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.raw-result .rhead .err { color: var(--err); }
+.raw-result pre { margin: 0; padding: 8px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 34vh; overflow: auto; background: var(--bg); }
+.raw-result .sent { color: var(--muted); border-top: 1px solid var(--border); }
+.raw-result details { border-top: 1px solid var(--border); }
+.raw-result summary { padding: 4px 8px; cursor: pointer; color: var(--muted); font-size: 11px; }

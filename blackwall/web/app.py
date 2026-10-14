@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from blackwall import db, oast, tools
+from blackwall import db, oast, raw, tools
 
 # Intruder sınırları
 MAX_REQUESTS = 10_000      # bir saldırıda üretilecek toplam istek üst sınırı
@@ -599,6 +599,52 @@ def api_ws_inject_status(inject_id: int):
     if row is None:
         raise HTTPException(404, "Enjeksiyon kaydı bulunamadı")
     return row
+
+
+# ---------------------------------------------------------------------------
+# Raw — ham TCP/TLS istek göndericisi (smuggling)
+# ---------------------------------------------------------------------------
+class RawSendRequest(BaseModel):
+    host: str
+    port: int = 80
+    tls: bool = False
+    mode: str = "crlf"               # crlf | lf | escape
+    request1: str = ""
+    request2: Optional[str] = None   # aynı socket'te ikinci istek
+    timeout: float = 10.0
+    read_idle: float = 1.0
+    delay_ms: int = 0
+    sni: Optional[str] = None
+
+
+@app.post("/api/raw/send")
+async def api_raw_send(reqdata: RawSendRequest):
+    if not reqdata.host.strip():
+        raise HTTPException(400, "host gerekli")
+    if not (1 <= reqdata.port <= 65535):
+        raise HTTPException(400, "port 1-65535 arası olmalı")
+    if reqdata.mode not in ("crlf", "lf", "escape"):
+        raise HTTPException(400, "mode crlf | lf | escape olmalı")
+
+    try:
+        payloads = [raw.encode_payload(reqdata.request1, reqdata.mode)]
+        if reqdata.request2 and reqdata.request2.strip():
+            payloads.append(raw.encode_payload(reqdata.request2, reqdata.mode))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    result = await asyncio.to_thread(
+        raw.send_raw,
+        host=reqdata.host.strip(),
+        port=reqdata.port,
+        use_tls=reqdata.tls,
+        payloads=payloads,
+        timeout=reqdata.timeout,
+        read_idle=reqdata.read_idle,
+        delay_ms=reqdata.delay_ms,
+        sni=(reqdata.sni.strip() if reqdata.sni else None),
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -37,6 +37,7 @@
         <button class="tab" data-pane="repeater">Repeater</button>
         <button class="tab" data-pane="inspector">Inspector</button>
         <button class="tab" data-pane="intruder">Intruder</button>
+        <button class="tab" data-pane="raw">Raw</button>
         <button class="tab" data-pane="websocket">WebSocket</button>
         <button class="tab" data-pane="oast">OAST</button>
         <button class="tab" data-pane="decoder">Decoder</button>
@@ -144,6 +145,41 @@
         </div>
         <label class="lbl">Tam yanıt <span id="intr-detail-idx" class="hint"></span></label>
         <pre id="intr-detail" class="raw"></pre>
+      </div>
+
+      <!-- Raw -->
+      <div class="pane" id="pane-raw">
+        <div class="rep-row">
+          <label class="inline">host <input id="raw-host" type="text" placeholder="example.com veya IP" /></label>
+          <label class="inline">port <input id="raw-port" type="number" value="80" min="1" max="65535" /></label>
+          <label class="inline"><input id="raw-tls" type="checkbox" /> TLS</label>
+          <label class="inline">SNI <input id="raw-sni" type="text" placeholder="(host)" /></label>
+        </div>
+        <div class="rep-row">
+          <label class="inline">satır sonu
+            <select id="raw-mode">
+              <option value="crlf">CRLF (satır sonlarını \r\n yap)</option>
+              <option value="lf">LF (yazıldığı gibi)</option>
+              <option value="escape">escape (\r \n \t \0 \xHH)</option>
+            </select>
+          </label>
+          <label class="inline">timeout(s) <input id="raw-timeout" type="number" value="10" min="1" step="0.5" /></label>
+          <label class="inline">read-idle(s) <input id="raw-idle" type="number" value="1" min="0.1" step="0.1" /></label>
+          <label class="inline">2. istekten önce gecikme(ms) <input id="raw-delay" type="number" value="0" min="0" /></label>
+        </div>
+        <span class="hint" id="raw-mode-hint"></span>
+
+        <label class="lbl">İstek 1</label>
+        <textarea id="raw-req1" class="raw-ta" rows="8" spellcheck="false" placeholder="GET / HTTP/1.1&#10;Host: example.com&#10;&#10;"></textarea>
+        <label class="lbl">İstek 2 <span class="hint">(opsiyonel — aynı socket'te sıralı gönderilir)</span></label>
+        <textarea id="raw-req2" class="raw-ta" rows="6" spellcheck="false" placeholder="(boşsa tek istek gönderilir)"></textarea>
+
+        <div class="rep-row">
+          <button id="raw-send">Gönder</button>
+          <label class="inline"><input id="raw-hex" type="checkbox" /> hex dump</label>
+          <span id="raw-state" class="hint"></span>
+        </div>
+        <div id="raw-results"></div>
       </div>
 
       <!-- WebSocket -->

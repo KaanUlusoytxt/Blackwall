@@ -691,6 +691,106 @@ async function showOastDetail(index) {
   }
 }
 
+// ---- Raw ---------------------------------------------------------------
+const RAW_HINTS = {
+  crlf: "Her satır \\r\\n ile biter. Textarea'da yazılan normal istekler için.",
+  lf: "Satır sonları LF (\\n) kalır — bare-LF testleri için.",
+  escape: "Gerçek satır sonları yok sayılır; byte'ları \\r \\n \\t \\0 \\xHH ile yazın. Tam kontrol.",
+};
+function rawHint() { $("#raw-mode-hint").textContent = RAW_HINTS[$("#raw-mode").value]; }
+$("#raw-mode").onchange = rawHint;
+
+function b64ToBytes(b64) {
+  const bin = atob(b64 || "");
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+function bytesToLatin1(arr) {
+  let s = "";
+  for (let i = 0; i < arr.length; i++) s += String.fromCharCode(arr[i]);
+  return s;
+}
+function bytesToHex(arr) {
+  let out = "";
+  for (let off = 0; off < arr.length; off += 16) {
+    const slice = arr.subarray(off, off + 16);
+    const hex = [...slice].map((b) => b.toString(16).padStart(2, "0")).join(" ");
+    const asc = [...slice].map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : ".")).join("");
+    out += off.toString(16).padStart(8, "0") + "  " + hex.padEnd(16 * 3 - 1) + "  " + asc + "\n";
+  }
+  return out;
+}
+function renderBytes(b64) {
+  const arr = b64ToBytes(b64);
+  return $("#raw-hex").checked ? bytesToHex(arr) : bytesToLatin1(arr);
+}
+
+async function rawSend() {
+  const btn = $("#raw-send");
+  btn.disabled = true; $("#raw-state").textContent = "gönderiliyor…";
+  const payload = {
+    host: $("#raw-host").value.trim(),
+    port: parseInt($("#raw-port").value, 10) || 80,
+    tls: $("#raw-tls").checked,
+    mode: $("#raw-mode").value,
+    request1: $("#raw-req1").value,
+    request2: $("#raw-req2").value,
+    timeout: parseFloat($("#raw-timeout").value) || 10,
+    read_idle: parseFloat($("#raw-idle").value) || 1,
+    delay_ms: parseInt($("#raw-delay").value, 10) || 0,
+    sni: $("#raw-sni").value.trim() || null,
+  };
+  try {
+    const res = await fetch("/api/raw/send", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) { $("#raw-state").textContent = "⚠ " + (data.detail || "hata"); return; }
+    renderRawResult(data);
+    $("#raw-state").textContent = data.error ? "⚠ " + data.error
+      : `bağlantı OK${data.tls_version ? " · " + data.tls_version : ""} · ${data.requests.length} istek`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+let lastRawData = null;
+function renderRawResult(data) {
+  lastRawData = data;
+  const box = $("#raw-results");
+  box.innerHTML = "";
+  if (data.error) {
+    const d = document.createElement("div");
+    d.className = "raw-result"; d.innerHTML = `<div class="rhead err">${escapeHtml(data.error)}</div>`;
+    box.appendChild(d);
+  }
+  for (const r of data.requests) {
+    const div = document.createElement("div");
+    div.className = "raw-result";
+    let head = `<span>istek #${r.index + 1}</span><span>gönderilen: ${r.sent_size} B</span>` +
+      `<span>yanıt: ${r.response_size} B</span><span>${Math.round(r.duration_ms)} ms</span>`;
+    if (r.send_error) head += `<span class="err">gönderme: ${escapeHtml(r.send_error)}</span>`;
+    if (r.recv_error) head += `<span class="err">okuma: ${escapeHtml(r.recv_error)}</span>`;
+    const pre = document.createElement("pre");
+    pre.textContent = renderBytes(r.response_base64);
+    const sent = document.createElement("details");
+    sent.innerHTML = `<summary>gönderilen ham byte'lar (${r.sent_size} B)</summary>`;
+    const spre = document.createElement("pre");
+    spre.className = "sent";
+    spre.textContent = renderBytes(r.sent_base64);
+    sent.appendChild(spre);
+    const h = document.createElement("div"); h.className = "rhead"; h.innerHTML = head;
+    div.appendChild(h); div.appendChild(pre); div.appendChild(sent);
+    box.appendChild(div);
+  }
+}
+
+$("#raw-send").onclick = rawSend;
+$("#raw-hex").onchange = () => { if (lastRawData) renderRawResult(lastRawData); };
+rawHint();
+
 // ---- WebSocket ---------------------------------------------------------
 const ws = { flowId: null, state: null, lastId: 0, poll: null };
 

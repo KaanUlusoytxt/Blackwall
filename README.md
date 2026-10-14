@@ -198,6 +198,25 @@ curl -x http://127.0.0.1:8080 \
     - *Nasıl çalışır:* web süreci enjeksiyon isteğini `ws_inject` kuyruğuna yazar;
       mitmproxy sürecindeki addon kuyruğu yoklar ve canlı akışa `inject.websocket`
       komutuyla mesajı iletir (iki süreç yalnızca SQLite paylaşır).
+  - **Raw** sekmesi: ham TCP/TLS istek göndericisi (HTTP request smuggling /
+    desync araştırması için). Repeater'dan ayrıdır ve ona dokunmaz.
+    - **Tamamen ham soket** (stdlib `socket`/`ssl`; httpx/requests kullanmaz).
+      Yazdığınız byte'lara dokunulmaz: `Content-Length` / `Transfer-Encoding`
+      otomatik hesaplanmaz, header sırası korunur, chunked gövde olduğu gibi gider.
+    - **host / port / TLS / SNI** seçilir. TLS'de sertifika doğrulanmaz (ALPN
+      ayarlanmaz → sunucu HTTP/1.1 kullanır).
+    - **Satır sonu modu:**
+      - `CRLF` (varsayılan) — textarea'daki satır sonları `\r\n` yapılır.
+      - `LF` — satır sonları `\n` kalır (bare-LF testleri).
+      - `escape` — gerçek satır sonları yok sayılır; byte'ları `\r \n \t \0 \xHH`
+        ile birebir yazarsınız (tam kontrol; null byte, bare CR vb.).
+    - **İki istek** aynı socket'te sıralı gönderilir (2. istek opsiyonel) —
+      CL.TE / TE.CL desync testleri için şarttır. İkinci istekten önce gecikme
+      (ms) ayarlanabilir.
+    - **timeout** (toplam) ve **read-idle** (yanıt bitti saymadan önce beklenen
+      boşta süre) ayarlanabilir. Yanıt **ham byte** olarak (latin-1) ya da **hex
+      dump** gösterilir; gönderilen ham byte'lar da (çerçevelemeyi doğrulamak için)
+      açılır.
 
 ---
 
@@ -222,6 +241,7 @@ tarayıcı/cihaz ──▶ mitmdump (addon.py) ──▶ hedef
   kuyruğunu işleyip canlı bağlantılara mesaj enjekte eder.
 - `blackwall/web/app.py` — History/Repeater/Inspector/Intruder/OAST/WebSocket API'leri.
 - `blackwall/oast.py` — interactsh (OAST) istemcisi (saf Python).
+- `blackwall/raw.py` — ham TCP/TLS istek göndericisi (stdlib socket/ssl).
 - `blackwall/tools.py` — Decoder/JWT/Intruder yardımcıları.
 - `blackwall/web/static/` — tek sayfalık arayüz (vanilla JS).
 
