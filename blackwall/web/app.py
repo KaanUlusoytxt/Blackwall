@@ -648,6 +648,52 @@ async def api_raw_send(reqdata: RawSendRequest):
 
 
 # ---------------------------------------------------------------------------
+# Race — last-byte synchronization ile race condition saldırısı
+# ---------------------------------------------------------------------------
+class RaceRequest(BaseModel):
+    host: str
+    port: int = 80
+    tls: bool = False
+    mode: str = "crlf"               # crlf | lf | escape
+    request: str = ""
+    count: int = 20
+    timeout: float = 10.0
+    read_idle: float = 1.0
+    prefix_delay_ms: int = 100
+    sni: Optional[str] = None
+
+
+@app.post("/api/race/run")
+async def api_race_run(reqdata: RaceRequest):
+    if not reqdata.host.strip():
+        raise HTTPException(400, "host gerekli")
+    if not (1 <= reqdata.port <= 65535):
+        raise HTTPException(400, "port 1-65535 arası olmalı")
+    if reqdata.mode not in ("crlf", "lf", "escape"):
+        raise HTTPException(400, "mode crlf | lf | escape olmalı")
+    try:
+        payload = raw.encode_payload(reqdata.request, reqdata.mode)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if not payload:
+        raise HTTPException(400, "boş istek gönderilemez")
+
+    result = await asyncio.to_thread(
+        raw.race_last_byte,
+        host=reqdata.host.strip(),
+        port=reqdata.port,
+        use_tls=reqdata.tls,
+        payload=payload,
+        count=reqdata.count,
+        timeout=reqdata.timeout,
+        read_idle=reqdata.read_idle,
+        prefix_delay_ms=reqdata.prefix_delay_ms,
+        sni=(reqdata.sni.strip() if reqdata.sni else None),
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Statik UI
 # ---------------------------------------------------------------------------
 @app.get("/")

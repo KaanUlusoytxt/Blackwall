@@ -172,3 +172,14 @@ label.inline input[type=number] { width: 64px; }
 .raw-result .sent { color: var(--muted); border-top: 1px solid var(--border); }
 .raw-result details { border-top: 1px solid var(--border); }
 .raw-result summary { padding: 4px 8px; cursor: pointer; color: var(--muted); font-size: 11px; }
+
+/* Race */
+#race-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#race-table th { position: sticky; top: 0; background: var(--panel); white-space: nowrap; }
+#race-table td { font-family: var(--mono); white-space: nowrap; }
+#race-table tbody tr { cursor: pointer; }
+#race-table tbody tr:hover { background: #1c2128; }
+#race-table tbody tr.sel { background: #1f6feb33; }
+#race-table tbody tr.distinct { background: #3fb95022; }
+#race-table tbody tr.distinct td:first-child { border-left: 3px solid var(--ok); }
+#race-detail { max-height: 32vh; }

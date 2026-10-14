@@ -791,6 +791,80 @@ $("#raw-send").onclick = rawSend;
 $("#raw-hex").onchange = () => { if (lastRawData) renderRawResult(lastRawData); };
 rawHint();
 
+// ---- Race --------------------------------------------------------------
+let lastRaceData = null;
+const raceSel = { idx: null };
+
+async function raceRun() {
+  const btn = $("#race-run");
+  btn.disabled = true; $("#race-state").textContent = "saldırı sürüyor…";
+  const payload = {
+    host: $("#race-host").value.trim(),
+    port: parseInt($("#race-port").value, 10) || 443,
+    tls: $("#race-tls").checked,
+    mode: $("#race-mode").value,
+    request: $("#race-req").value,
+    count: parseInt($("#race-count").value, 10) || 20,
+    timeout: parseFloat($("#race-timeout").value) || 10,
+    read_idle: parseFloat($("#race-idle").value) || 1,
+    prefix_delay_ms: parseInt($("#race-prefix").value, 10) || 0,
+    sni: $("#race-sni").value.trim() || null,
+  };
+  try {
+    const res = await fetch("/api/race/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) { $("#race-state").textContent = "⚠ " + (data.detail || "hata"); return; }
+    lastRaceData = data;
+    renderRaceTable(data);
+    const distinct = data.results.filter((r) => r.distinct).length;
+    $("#race-state").textContent =
+      (data.error ? "⚠ " + data.error + " · " : "") +
+      `${data.count} bağlantı · çoğunluk ${data.majority || "—"} · ` +
+      `sync ±${data.sync_spread_ms.toFixed(2)}ms · farklı: ${distinct}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderRaceTable(data) {
+  const tbody = $("#race-tbody");
+  tbody.innerHTML = "";
+  for (const r of data.results) {
+    const tr = document.createElement("tr");
+    if (r.distinct) tr.classList.add("distinct");
+    if (r.index === raceSel.idx) tr.classList.add("sel");
+    tr.innerHTML = `
+      <td>${r.index}</td>
+      <td class="${r.error ? "s-err" : statusClass(r.status)}">${r.error ? "ERR" : (r.status ?? "—")}</td>
+      <td>${r.response_size}</td>
+      <td>${r.sent_offset_ms != null ? r.sent_offset_ms.toFixed(1) : "—"}</td>
+      <td>${r.arrival_ms != null ? r.arrival_ms.toFixed(1) : "—"}</td>
+      <td>${r.distinct ? "★ " : ""}${escapeHtml(r.signature)}</td>
+      <td title="${escapeHtml(r.error || "")}">${escapeHtml(r.error || "")}</td>`;
+    tr.onclick = () => showRaceDetail(r.index);
+    tbody.appendChild(tr);
+  }
+}
+
+function showRaceDetail(index) {
+  raceSel.idx = index;
+  const r = lastRaceData.results.find((x) => x.index === index);
+  if (!r) return;
+  $("#race-detail-idx").textContent =
+    `#${index} · ${r.signature}` + (r.distinct ? " · ★ farklı sonuç" : "");
+  $("#race-detail").textContent = r.response_base64
+    ? bytesToLatin1(b64ToBytes(r.response_base64))
+    : (r.error ? "HATA: " + r.error : "(yanıt yok)");
+  for (const tr of $("#race-tbody").querySelectorAll("tr")) {
+    tr.classList.toggle("sel", tr.firstElementChild && tr.firstElementChild.textContent === String(index));
+  }
+}
+
+$("#race-run").onclick = raceRun;
+
 // ---- WebSocket ---------------------------------------------------------
 const ws = { flowId: null, state: null, lastId: 0, poll: null };
 
