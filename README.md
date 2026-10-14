@@ -156,7 +156,13 @@ curl -x http://127.0.0.1:8080 \
     - **Sonuç tablosu:** payload(lar), status, yanıt uzunluğu, süre (ms), hata.
       Her kolon başlığına tıklayarak sıralanır; status (ör. `200` veya `2,3`
       önekleri), min/max uzunluk ve "sadece hatalılar" ile filtrelenir. Bir satıra
-      tıklayınca gönderilen istek ve tam yanıt aşağıda görünür.
+      tıklayınca **gönderilen ham istek** (gerçekten gönderilen byte'lar) ve
+      **tam yanıt** aşağıda görünür.
+    - İstek gönderimi **Repeater ile birebir aynı ortak koddan** geçer
+      (`blackwall/httpsend.py`): Intruder yalnızca payload'ı `§...§` konumlarına
+      yerleştirir, sonra aynı fonksiyonu çağırır. Payload yerleştikten sonra
+      `Content-Length` gövdenin gerçek uzunluğuna göre **yeniden hesaplanır**
+      (Repeater'da da aynı), böylece iki araç aynı isteği aynı byte'larla gönderir.
     - Tamamen yerel/offline; istekler doğrudan hedefe httpx ile gider (proxy'den
       geçmez).
   - **OAST** sekmesi: out-of-band etkileşim yakalama (interactsh protokolü, saf
@@ -256,7 +262,8 @@ tarayıcı/cihaz ──▶ mitmdump (addon.py) ──▶ hedef
   kuyruğunu işleyip canlı bağlantılara mesaj enjekte eder.
 - `blackwall/web/app.py` — History/Repeater/Inspector/Intruder/OAST/WebSocket API'leri.
 - `blackwall/oast.py` — interactsh (OAST) istemcisi (saf Python).
-- `blackwall/raw.py` — ham TCP/TLS istek göndericisi (stdlib socket/ssl).
+- `blackwall/raw.py` — ham TCP/TLS istek göndericisi (stdlib socket/ssl) + Race.
+- `blackwall/httpsend.py` — Repeater & Intruder'ın ortak httpx gönderim yolu.
 - `blackwall/tools.py` — Decoder/JWT/Intruder yardımcıları.
 - `blackwall/web/static/` — tek sayfalık arayüz (vanilla JS).
 

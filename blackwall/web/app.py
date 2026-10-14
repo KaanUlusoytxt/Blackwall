@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from blackwall import db, oast, raw, tools
+from blackwall import db, httpsend, oast, raw, tools
 
 # Intruder sınırları
 MAX_REQUESTS = 10_000      # bir saldırıda üretilecek toplam istek üst sınırı
@@ -99,27 +99,28 @@ def api_repeater_send(reqdata: RepeaterRequest):
     else:
         body = None
 
-    # httpx'in kendi Host/Content-Length başlıklarını ezmesine izin ver; ama
-    # kullanıcının verdiği başlıkları olduğu gibi gönder.
     headers = list(reqdata.headers)
-
     parsed = httpx.URL(reqdata.url)
 
     started = time.time()
     error: Optional[str] = None
     resp: Optional[httpx.Response] = None
+    sent_raw: Optional[str] = None
     try:
         with httpx.Client(
             verify=reqdata.verify_tls,
             follow_redirects=reqdata.follow_redirects,
             timeout=reqdata.timeout,
         ) as client:
-            resp = client.request(
-                reqdata.method.upper(),
-                reqdata.url,
+            # Intruder ile BİREBİR aynı gönderim yolu (CL gövdeye göre yeniden hesaplanır).
+            req, sent_raw = httpsend.build_request(
+                client,
+                method=reqdata.method,
+                url=reqdata.url,
                 headers=headers,
-                content=body,
+                body=body,
             )
+            resp = client.send(req, follow_redirects=reqdata.follow_redirects)
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
     duration_ms = (time.time() - started) * 1000.0
@@ -258,17 +259,14 @@ async def _run_intruder(job_id: str) -> None:
                     "error": None,
                 }
                 started = time.perf_counter()
+                sent_raw = concrete  # parse başarısız olursa en azından ham metni sakla
                 try:
+                    # Repeater ile BİREBİR aynı gönderim yolu.
                     method, url, headers, body = tools.parse_http(concrete, job["scheme"])
-                    # Host ve Content-Length httpx tarafından yeniden hesaplanır.
-                    send_headers = [
-                        (k, v) for k, v in headers
-                        if k.lower() not in ("host", "content-length")
-                    ]
-                    resp = await client.request(
-                        method, url, headers=send_headers,
-                        content=body if body else None,
+                    req, sent_raw = httpsend.build_request(
+                        client, method=method, url=url, headers=headers, body=body
                     )
+                    resp = await client.send(req, follow_redirects=job["follow_redirects"])
                     dur = (time.perf_counter() - started) * 1000.0
                     text = resp.text
                     truncated = len(text) > MAX_STORED_BODY
@@ -287,12 +285,12 @@ async def _run_intruder(job_id: str) -> None:
                         status_line + "\n" + hdrs + "\n\n" + text
                         + ("\n\n[... kısaltıldı ...]" if truncated else "")
                     )
-                    job["requests"][index] = concrete
+                    job["requests"][index] = sent_raw
                 except Exception as exc:
                     result["error"] = f"{type(exc).__name__}: {exc}"
                     result["duration_ms"] = (time.perf_counter() - started) * 1000.0
                     job["responses"][index] = f"HATA: {result['error']}"
-                    job["requests"][index] = concrete
+                    job["requests"][index] = sent_raw
                 finally:
                     job["results"].append(result)
                     job["done"] += 1
