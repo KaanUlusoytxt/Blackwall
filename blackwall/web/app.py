@@ -225,6 +225,7 @@ class IntruderStart(BaseModel):
     timeout: float = 15.0
     verify_tls: bool = False
     follow_redirects: bool = False
+    grep: list[str] = Field(default_factory=list)   # yanıt gövdesinde aranacak metinler
 
 
 def _prune_jobs() -> None:
@@ -252,6 +253,7 @@ async def _run_intruder(job_id: str) -> None:
                 if job["state"] == "cancelled":
                     return
                 concrete = tools.build_request(segments, values)
+                grep_terms = job["grep_terms"]
                 result: dict[str, Any] = {
                     "index": index,
                     "payloads": values,
@@ -259,6 +261,7 @@ async def _run_intruder(job_id: str) -> None:
                     "length": None,
                     "duration_ms": None,
                     "error": None,
+                    "grep": [False] * len(grep_terms),
                 }
                 started = time.perf_counter()
                 sent_raw = concrete  # parse başarısız olursa en azından ham metni sakla
@@ -278,6 +281,9 @@ async def _run_intruder(job_id: str) -> None:
                     resp = await client.send(req, follow_redirects=job["follow_redirects"])
                     dur = (time.perf_counter() - started) * 1000.0
                     text = resp.text
+                    # grep-match: yanıt GÖVDESİNDE (kısaltmadan önce) her metni ara
+                    if grep_terms:
+                        result["grep"] = [(t in text) for t in grep_terms]
                     truncated = len(text) > MAX_STORED_BODY
                     if truncated:
                         text = text[:MAX_STORED_BODY]
@@ -336,6 +342,7 @@ async def api_intruder_start(cfg: IntruderStart):
         "scheme": cfg.scheme,
         "host": cfg.host.strip(),
         "port": cfg.port,
+        "grep_terms": [t for t in (s.strip() for s in cfg.grep) if t],
         "segments": segments,
         "cases": cases,
         "concurrency": concurrency,
@@ -363,6 +370,7 @@ def api_intruder_status(job_id: str):
         "total": job["total"],
         "done": job["done"],
         "attack": job["attack"],
+        "grep_terms": job["grep_terms"],
         "results": job["results"],
     }
 

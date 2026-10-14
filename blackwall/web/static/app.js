@@ -315,7 +315,7 @@ $("#jwt-hs256").onclick = () => jwtSign("HS256");
 $("#jwt-copy").onclick = () => copyText($("#jwt-out").textContent);
 
 // ---- Intruder ----------------------------------------------------------
-const intr = { jobId: null, results: [], poll: null, sort: { key: "index", dir: 1 }, selIdx: null };
+const intr = { jobId: null, results: [], poll: null, sort: { key: "index", dir: 1 }, selIdx: null, grepTerms: [], grepFilter: {} };
 const psetCache = [];
 
 function rawFromFlow(f) {
@@ -490,6 +490,7 @@ async function intruderStart() {
     timeout: parseFloat($("#intr-timeout").value) || 15,
     verify_tls: $("#intr-verify").checked,
     follow_redirects: $("#intr-follow").checked,
+    grep: linesOf($("#intr-grep").value),
   };
   const res = await fetch("/api/intruder/start", {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -512,6 +513,7 @@ async function pollIntruder() {
   if (!res.ok) return;
   const data = await res.json();
   intr.results = data.results;
+  ensureGrepUI(data.grep_terms || []);
   $("#intr-progress").textContent =
     `${data.state} — ${data.done}/${data.total}`;
   renderIntrTable();
@@ -540,6 +542,49 @@ for (const th of document.querySelectorAll("#intr-table th")) {
 ["#intr-f-status", "#intr-f-min", "#intr-f-max"].forEach((s) => $(s).oninput = debounce(renderIntrTable, 150));
 $("#intr-f-err").onchange = renderIntrTable;
 
+function grepLabel(t) { return t.length > 12 ? t.slice(0, 12) + "…" : t; }
+
+// grep terimlerine göre dinamik sütun başlıkları + filtre açılırları kurar.
+function ensureGrepUI(terms) {
+  const same = terms.length === intr.grepTerms.length && terms.every((t, i) => t === intr.grepTerms[i]);
+  if (same) return;
+  intr.grepTerms = terms.slice();
+  intr.grepFilter = {};
+
+  const headRow = document.querySelector("#intr-table thead tr");
+  headRow.querySelectorAll("th.grep-col").forEach((th) => th.remove());
+  terms.forEach((t, i) => {
+    const th = document.createElement("th");
+    th.className = "grep-col";
+    th.dataset.sort = "grep:" + i;
+    th.title = t;
+    th.textContent = "🔎 " + grepLabel(t);
+    th.onclick = () => {
+      const key = th.dataset.sort;
+      if (intr.sort.key === key) intr.sort.dir *= -1;
+      else intr.sort = { key, dir: 1 };
+      renderIntrTable();
+    };
+    headRow.appendChild(th);
+  });
+
+  const fc = $("#intr-grep-filters");
+  fc.innerHTML = "";
+  terms.forEach((t, i) => {
+    intr.grepFilter[i] = "all";
+    const sel = document.createElement("select");
+    sel.className = "grep-filt";
+    sel.title = t;
+    const lbl = escapeHtml(grepLabel(t));
+    sel.innerHTML =
+      `<option value="all">${lbl}: hepsi</option>` +
+      `<option value="yes">${lbl}: var</option>` +
+      `<option value="no">${lbl}: yok</option>`;
+    sel.onchange = () => { intr.grepFilter[i] = sel.value; renderIntrTable(); };
+    fc.appendChild(sel);
+  });
+}
+
 function passFilter(r) {
   if ($("#intr-f-err").checked && !r.error) return false;
   const sf = $("#intr-f-status").value.trim();
@@ -552,6 +597,14 @@ function passFilter(r) {
   const mx = parseInt($("#intr-f-max").value, 10);
   if (!Number.isNaN(mn) && (r.length == null || r.length < mn)) return false;
   if (!Number.isNaN(mx) && (r.length == null || r.length > mx)) return false;
+  // grep sütun filtreleri
+  for (const gi in intr.grepFilter) {
+    const mode = intr.grepFilter[gi];
+    if (mode === "all") continue;
+    const has = !!(r.grep && r.grep[gi]);
+    if (mode === "yes" && !has) return false;
+    if (mode === "no" && has) return false;
+  }
   return true;
 }
 
@@ -559,10 +612,17 @@ function renderIntrTable() {
   const tbody = $("#intr-tbody");
   const { key, dir } = intr.sort;
   const rows = intr.results.filter(passFilter).slice().sort((a, b) => {
-    let x = a[key], y = b[key];
-    if (key === "payloads") { x = (x || []).join(","); y = (y || []).join(","); }
-    if (x == null) x = key === "error" ? "" : -Infinity;
-    if (y == null) y = key === "error" ? "" : -Infinity;
+    let x, y;
+    if (typeof key === "string" && key.indexOf("grep:") === 0) {
+      const gi = +key.slice(5);
+      x = (a.grep && a.grep[gi]) ? 1 : 0;
+      y = (b.grep && b.grep[gi]) ? 1 : 0;
+    } else {
+      x = a[key]; y = b[key];
+      if (key === "payloads") { x = (x || []).join(","); y = (y || []).join(","); }
+      if (x == null) x = key === "error" ? "" : -Infinity;
+      if (y == null) y = key === "error" ? "" : -Infinity;
+    }
     if (x < y) return -1 * dir;
     if (x > y) return 1 * dir;
     return 0;
@@ -572,13 +632,18 @@ function renderIntrTable() {
     const tr = document.createElement("tr");
     if (r.index === intr.selIdx) tr.classList.add("sel");
     const pl = (r.payloads || []).join(" | ");
+    let grepCells = "";
+    for (let i = 0; i < intr.grepTerms.length; i++) {
+      const has = !!(r.grep && r.grep[i]);
+      grepCells += `<td class="grep-cell ${has ? "g-yes" : "g-no"}" title="${escapeHtml(intr.grepTerms[i])}">${has ? "✓" : "✗"}</td>`;
+    }
     tr.innerHTML = `
       <td>${r.index}</td>
       <td title="${escapeHtml(pl)}">${escapeHtml(pl)}</td>
       <td class="${r.error ? "s-err" : statusClass(r.status)}">${r.error ? "ERR" : (r.status ?? "—")}</td>
       <td>${r.length ?? "—"}</td>
       <td>${r.duration_ms != null ? Math.round(r.duration_ms) : "—"}</td>
-      <td title="${escapeHtml(r.error || "")}">${escapeHtml(r.error || "")}</td>`;
+      <td title="${escapeHtml(r.error || "")}">${escapeHtml(r.error || "")}</td>${grepCells}`;
     tr.onclick = () => showIntrDetail(r.index);
     tbody.appendChild(tr);
   }

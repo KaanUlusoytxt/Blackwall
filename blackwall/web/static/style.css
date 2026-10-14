@@ -116,6 +116,12 @@ label.inline input[type=number] { width: 64px; }
 #intr-table tbody tr { cursor: pointer; }
 #intr-table tbody tr:hover { background: #1c2128; }
 #intr-table tbody tr.sel { background: #1f6feb33; }
+#intr-grep { width: 100%; font-family: var(--mono); font-size: 12px; resize: vertical; }
+#intr-table th.grep-col { color: var(--accent); }
+#intr-table td.grep-cell { text-align: center; max-width: 60px; }
+#intr-table td.g-yes { color: var(--ok); font-weight: 600; }
+#intr-table td.g-no { color: var(--muted); }
+.intr-filters .grep-filt { font-size: 11px; }
 #intr-detail { max-height: 30vh; }
 
 /* OAST */

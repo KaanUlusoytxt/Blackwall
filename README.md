@@ -158,6 +158,10 @@ curl -x http://127.0.0.1:8080 \
       önekleri), min/max uzunluk ve "sadece hatalılar" ile filtrelenir. Bir satıra
       tıklayınca **gönderilen ham istek** (gerçekten gönderilen byte'lar) ve
       **tam yanıt** aşağıda görünür.
+    - **grep-match:** saldırı ayarlarına satır satır arama metinleri girilir; her
+      denemenin **yanıt gövdesinde** bu metinler aranır ve sonuç tablosuna her metin
+      için bir **✓/✗ sütunu** eklenir. Bu sütunlara göre de sıralama ve filtreleme
+      (hepsi / var / yok) yapılabilir. (Mevcut tablo/filtreler korunur.)
     - İstek gönderimi **Repeater ile birebir aynı ortak koddan** geçer
       (`blackwall/httpsend.py`): Intruder yalnızca payload'ı `§...§` konumlarına
       yerleştirir, sonra aynı fonksiyonu çağırır. Payload yerleştikten sonra

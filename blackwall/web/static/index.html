@@ -119,6 +119,9 @@
         <label class="lbl">Payload listeleri</label>
         <div id="intr-payloads"></div>
 
+        <label class="lbl">grep-match <span class="hint">(yanıt gövdesinde aranacak metinler — her satır bir sütun)</span></label>
+        <textarea id="intr-grep" rows="3" spellcheck="false" placeholder="ör. Welcome&#10;Invalid password&#10;error"></textarea>
+
         <div class="rep-row">
           <button id="intr-start">Saldırıyı başlat</button>
           <button id="intr-cancel" class="danger" disabled>İptal</button>
@@ -130,6 +133,7 @@
           <input id="intr-f-min" type="number" placeholder="min uzunluk" />
           <input id="intr-f-max" type="number" placeholder="max uzunluk" />
           <label class="inline"><input id="intr-f-err" type="checkbox" /> sadece hatalılar</label>
+          <span id="intr-grep-filters"></span>
         </div>
         <div class="intr-table-wrap">
           <table id="intr-table">
