@@ -844,6 +844,7 @@ async function raceRun() {
     host: $("#race-host").value.trim(),
     port: parseInt($("#race-port").value, 10) || (($("#race-tls").checked) ? 443 : 80),
     tls: $("#race-tls").checked,
+    sync_mode: $("#race-sync").value,
     request: $("#race-req").value,
     count: parseInt($("#race-count").value, 10) || 20,
     timeout: parseFloat($("#race-timeout").value) || 10,
@@ -914,6 +915,14 @@ function showRaceDetail(index) {
 
 $("#race-run").onclick = raceRun;
 $("#race-hex").onchange = () => { if (raceSel.idx != null) showRaceDetail(raceSel.idx); };
+$("#race-sync").onchange = () => {
+  const sp = $("#race-sync").value === "single-packet";
+  if (sp) { $("#race-tls").checked = true; }   // h2 ALPN → TLS zorunlu
+  $("#race-tls").disabled = sp;
+  $("#race-state").textContent = sp
+    ? "single-packet: tek TLS bağlantısı (h2), tüm END_STREAM frame'leri tek pakette"
+    : "";
+};
 
 // ---- WebSocket ---------------------------------------------------------
 const ws = { flowId: null, state: null, lastId: 0, poll: null };

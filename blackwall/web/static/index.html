@@ -193,6 +193,12 @@
           <label class="inline">SNI <input id="race-sni" type="text" placeholder="(host)" /></label>
         </div>
         <div class="rep-row">
+          <label class="inline">sync modu
+            <select id="race-sync">
+              <option value="last-byte">last-byte (HTTP/1.1)</option>
+              <option value="single-packet">single-packet (HTTP/2)</option>
+            </select>
+          </label>
           <label class="inline">N (bağlantı) <input id="race-count" type="number" value="20" min="1" max="255" /></label>
           <label class="inline">prefix gecikme(ms) <input id="race-prefix" type="number" value="100" min="0" /></label>
           <label class="inline">timeout(s) <input id="race-timeout" type="number" value="10" min="1" step="0.5" /></label>

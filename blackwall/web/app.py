@@ -663,7 +663,7 @@ class RaceRequest(BaseModel):
     host: str
     port: int = 80
     tls: bool = False
-    mode: str = "crlf"               # crlf | lf | escape
+    sync_mode: str = "last-byte"     # last-byte (HTTP/1.1) | single-packet (HTTP/2)
     request: str = ""
     count: int = 20
     timeout: float = 10.0
@@ -682,13 +682,28 @@ async def api_race_run(reqdata: RaceRequest):
     if not (1 <= port <= 65535):
         raise HTTPException(400, "port 1-65535 arası olmalı")
 
-    # Payload, Repeater ile BİREBİR aynı httpx yolundan üretilir ve httpx'in tel
-    # (wire) byte'ları ham sokete yazılır → header ekleme/sıralama/CRLF/CL httpx ile
-    # aynı. Hedef Host: satırından değil, flow'un host/port/şemasından çözülür.
     try:
         method, path, headers, body = tools.parse_request(reqdata.request)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    sni = reqdata.sni.strip() if reqdata.sni else None
+
+    if reqdata.sync_mode == "single-packet":
+        # HTTP/2 single-packet attack (ALPN h2 → TLS zorunlu).
+        authority = tools.host_header(headers) or (host if port == 443 else f"{host}:{port}")
+        result = await asyncio.to_thread(
+            raw.race_single_packet,
+            host=host, port=port, method=method, path=path,
+            headers=headers, body=body, count=reqdata.count,
+            timeout=reqdata.timeout, read_idle=reqdata.read_idle,
+            prefix_delay_ms=reqdata.prefix_delay_ms, sni=sni, authority=authority,
+        )
+        sent = _render_h2_request(method, path, authority, headers, body)
+        result["sent_request"] = sent
+        result["sent_request_hex"] = raw.hexdump(sent.encode("latin-1", "replace"))
+        return result
+
+    # last-byte (HTTP/1.1): payload Repeater ile BİREBİR aynı httpx tel byte'ları.
     scheme = "https" if reqdata.tls else "http"
     url = tools.resolve_url(scheme, host, port, path)
     with httpx.Client() as client:
@@ -701,20 +716,29 @@ async def api_race_run(reqdata: RaceRequest):
 
     result = await asyncio.to_thread(
         raw.race_last_byte,
-        host=host,
-        port=port,
-        use_tls=reqdata.tls,
-        payload=payload,
-        count=reqdata.count,
-        timeout=reqdata.timeout,
-        read_idle=reqdata.read_idle,
-        prefix_delay_ms=reqdata.prefix_delay_ms,
-        sni=(reqdata.sni.strip() if reqdata.sni else None),
+        host=host, port=port, use_tls=reqdata.tls, payload=payload,
+        count=reqdata.count, timeout=reqdata.timeout, read_idle=reqdata.read_idle,
+        prefix_delay_ms=reqdata.prefix_delay_ms, sni=sni,
     )
-    # Gönderilen ham istek (tüm bağlantılarda aynı) — debug için metin + hex dump.
     result["sent_request"] = payload.decode("latin-1")
     result["sent_request_hex"] = raw.hexdump(payload)
     return result
+
+
+def _render_h2_request(method, path, authority, headers, body: Optional[bytes]) -> str:
+    """HTTP/2 isteğini görüntü için okunur metne çevirir (pseudo-header'lar dahil)."""
+    forbidden = {"host", "connection", "keep-alive", "proxy-connection",
+                 "transfer-encoding", "upgrade", "content-length"}
+    lines = [f":method: {method}", f":path: {path}", ":scheme: https",
+             f":authority: {authority}"]
+    lines += [f"{k.lower()}: {v}" for k, v in headers if k.lower() not in forbidden]
+    text = "\r\n".join(lines) + "\r\n\r\n"
+    if body:
+        try:
+            text += body.decode("utf-8")
+        except UnicodeDecodeError:
+            text += body.decode("latin-1")
+    return text
 
 
 # ---------------------------------------------------------------------------

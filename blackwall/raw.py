@@ -434,23 +434,208 @@ def race_last_byte(
         t.join()
 
     final = [r for r in results if r is not None]
-    # Race kazananı tespiti: en sık görülen (status, uzunluk) imzası "normal";
-    # ondan farklı dönen satırlar ayırt edilir (distinct=True).
-    sigs = Counter((r["status"], r["response_size"]) for r in final if r["error"] is None)
+    return _finalize_race(final)
+
+
+def _finalize_race(results: list[dict], error: Optional[str] = None) -> dict:
+    """Ortak sonuç paketleme: imza, race-kazanan (distinct) ve sync yayılımı."""
+    # Race kazananı: en sık görülen (status, uzunluk) imzası "normal"; farklılar distinct.
+    sigs = Counter((r["status"], r["response_size"]) for r in results if r["error"] is None)
     majority = sigs.most_common(1)[0][0] if sigs else None
-    for r in final:
+    for r in results:
         r["signature"] = f"{r['status']}·{r['response_size']}B"
         r["distinct"] = (
             r["error"] is None and majority is not None
             and (r["status"], r["response_size"]) != majority
         )
-    # senkron kalitesi: son bayt gönderim zamanlarının yayılımı
-    offsets = [r["sent_offset_ms"] for r in final if r["sent_offset_ms"] is not None]
+    offsets = [r["sent_offset_ms"] for r in results if r["sent_offset_ms"] is not None]
     spread = (max(offsets) - min(offsets)) if len(offsets) >= 2 else 0.0
     return {
-        "error": None,
-        "results": final,
-        "count": len(final),
+        "error": error,
+        "results": results,
+        "count": len(results),
         "majority": (f"{majority[0]}·{majority[1]}B" if majority else None),
         "sync_spread_ms": spread,
     }
+
+
+def race_single_packet(
+    *,
+    host: str,
+    port: int,
+    method: str,
+    path: str,
+    headers: list[tuple[str, str]],
+    body: Optional[bytes],
+    count: int,
+    timeout: float = 15.0,
+    read_idle: float = 2.0,
+    prefix_delay_ms: int = 100,
+    sni: Optional[str] = None,
+    authority: Optional[str] = None,
+) -> dict:
+    """HTTP/2 single-packet attack.
+
+    Tek TLS bağlantısı (ALPN h2) açar; N isteği ayrı stream olarak hazırlar
+    (HEADERS + varsa gövde, END_STREAM YOK). Hepsi hazır olunca tüm stream'lerin
+    END_STREAM frame'lerini TEK write() ile gönderir → istekler sunucuya tek TCP
+    paketinde, eş zamanlı varır.
+    """
+    import h2.config
+    import h2.connection
+    import h2.events
+
+    count = max(1, min(count, MAX_RACE))
+    body = body or b""
+
+    # Bağlantı (ALPN h2 zorunlu)
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        ctx.set_alpn_protocols(["h2"])
+        server_hostname = sni if sni else host
+        try:
+            tsock = ctx.wrap_socket(sock, server_hostname=server_hostname)
+        except (ValueError, ssl.SSLError):
+            tsock = ctx.wrap_socket(sock, server_hostname=None)
+    except OSError as exc:
+        return _finalize_race([], error=f"Bağlantı hatası: {type(exc).__name__}: {exc}")
+
+    if tsock.selected_alpn_protocol() != "h2":
+        try:
+            tsock.close()
+        except Exception:
+            pass
+        return _finalize_race([], error="Sunucu HTTP/2 (ALPN h2) desteklemiyor")
+
+    try:
+        conn = h2.connection.H2Connection(
+            config=h2.config.H2Configuration(client_side=True)
+        )
+        conn.initiate_connection()
+        tsock.sendall(conn.data_to_send())
+
+        # h2 başlıkları: pseudo-header'lar önce; bağlantıya özel + Host/CL at.
+        if not authority:
+            authority = tools_host_header(headers) or host
+        forbidden = {
+            "host", "connection", "keep-alive", "proxy-connection",
+            "transfer-encoding", "upgrade", "content-length",
+        }
+        h2_headers = [
+            (":method", method),
+            (":path", path),
+            (":scheme", "https"),
+            (":authority", authority),
+        ] + [(k.lower(), v) for k, v in headers if k.lower() not in forbidden]
+
+        # Hazırlık (prime): HEADERS (END_STREAM YOK) + varsa gövde (END_STREAM YOK).
+        # Böylece gövdesiz istekler de END_STREAM'i salvo'da alır → single-packet.
+        stream_ids: list[int] = []
+        for _ in range(count):
+            sid = conn.get_next_available_stream_id()
+            stream_ids.append(sid)
+            conn.send_headers(sid, h2_headers, end_stream=False)
+            if body:
+                conn.send_data(sid, body, end_stream=False)
+        prime = conn.data_to_send()
+        if prime:
+            tsock.sendall(prime)
+
+        # Sunucu prime'ı tamponlasın diye kısa bekle.
+        time.sleep(max(0, prefix_delay_ms) / 1000.0)
+
+        # Salvo: tüm stream'lerin END_STREAM frame'leri TEK write() ile.
+        for sid in stream_ids:
+            conn.end_stream(sid)
+        salvo = conn.data_to_send()
+
+        t0 = time.perf_counter()
+        if salvo:
+            tsock.sendall(salvo)   # TEK PAKET: tüm END_STREAM frame'leri
+
+        # Yanıtları oku
+        idx_of = {sid: i for i, sid in enumerate(stream_ids)}
+        acc: dict[int, dict] = {
+            sid: {"status": None, "headers": [], "body": b"", "arrival": None}
+            for sid in stream_ids
+        }
+        ended: set[int] = set()
+        deadline = time.time() + timeout
+        while len(ended) < count:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            tsock.settimeout(min(read_idle, remaining))
+            try:
+                data = tsock.recv(65536)
+            except (socket.timeout, TimeoutError):
+                continue   # idle boşluk; tüm stream'ler bitene/deadline'a kadar bekle
+            if not data:
+                break      # bağlantı kapandı
+            for ev in conn.receive_data(data):
+                if isinstance(ev, h2.events.ResponseReceived):
+                    acc[ev.stream_id]["headers"] = ev.headers
+                    for k, v in ev.headers:
+                        kk = k.decode("latin-1") if isinstance(k, bytes) else k
+                        if kk == ":status":
+                            vv = v.decode("latin-1") if isinstance(v, bytes) else v
+                            try:
+                                acc[ev.stream_id]["status"] = int(vv)
+                            except ValueError:
+                                pass
+                elif isinstance(ev, h2.events.DataReceived):
+                    acc[ev.stream_id]["body"] += ev.data
+                    conn.acknowledge_received_data(ev.flow_controlled_length, ev.stream_id)
+                elif isinstance(ev, h2.events.StreamEnded):
+                    ended.add(ev.stream_id)
+                    acc[ev.stream_id]["arrival"] = (time.perf_counter() - t0) * 1000.0
+            out = conn.data_to_send()
+            if out:
+                tsock.sendall(out)
+
+        # Sonuç satırları (stream sırası = index)
+        results: list[dict] = []
+        for sid in stream_ids:
+            a = acc[sid]
+            full = _reconstruct_h2_response(a["status"], a["headers"], a["body"])
+            results.append({
+                "index": idx_of[sid],
+                "status": a["status"],
+                "response_size": len(full),
+                "sent_offset_ms": 0.0,                  # tek paket → hepsi aynı an
+                "arrival_ms": a["arrival"],
+                "error": None if a["status"] is not None else "yanıt alınamadı",
+                "response_base64": base64.b64encode(full[:RACE_BODY_CAP]).decode("ascii"),
+            })
+        return _finalize_race(results)
+    except Exception as exc:
+        return _finalize_race([], error=f"{type(exc).__name__}: {exc}")
+    finally:
+        try:
+            tsock.close()
+        except Exception:
+            pass
+
+
+def _reconstruct_h2_response(status, headers, body: bytes) -> bytes:
+    """h2 yanıtını görüntü için HTTP/2 metnine benzetir."""
+    lines = [f"HTTP/2 {status if status is not None else '?'}"]
+    for k, v in headers:
+        kk = k.decode("latin-1") if isinstance(k, bytes) else k
+        vv = v.decode("latin-1") if isinstance(v, bytes) else v
+        if kk == ":status":
+            continue
+        lines.append(f"{kk}: {vv}")
+    head = ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1", "replace")
+    return head + body
+
+
+def tools_host_header(headers: list[tuple[str, str]]) -> str:
+    for k, v in headers:
+        if k.lower() == "host":
+            return v
+    return ""

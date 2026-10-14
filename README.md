@@ -228,11 +228,17 @@ curl -x http://127.0.0.1:8080 \
       dump** gösterilir; gönderilen ham byte'lar da (çerçevelemeyi doğrulamak için)
       açılır.
   - **Race** sekmesi: race condition saldırısı (**last-byte synchronization**,
-    HTTP/1.1). Faz 5'teki ham socket altyapısını kullanır.
-    - Bir ham istek **N kez ayrı bağlantılarla** gönderilir; her isteğin **son
-      baytı tutulur**. Tüm bağlantılar prefix'i gönderip hazır olunca (bir
-      bariyerde buluşup) son baytlar aynı anda basılır → istekler sunucuya
-      ~eşzamanlı varır. (HTTP/2 single-packet tekniği kapsam dışı.)
+    HTTP/1.1) veya **single-packet** (HTTP/2). Ham socket altyapısını kullanır.
+    - **sync modu** seçilir:
+      - **last-byte (HTTP/1.1):** ham istek **N kez ayrı bağlantılarla** gönderilir;
+        her isteğin **son baytı tutulur**, tüm bağlantılar bir bariyerde buluşunca
+        son baytlar aynı anda basılır → istekler ~eşzamanlı varır.
+      - **single-packet (HTTP/2):** `h2` (saf Python) ile **tek TLS bağlantısı**
+        (ALPN h2) açılır; N istek ayrı stream olarak hazırlanır (HEADERS + varsa
+        gövde, END_STREAM yok), hepsi hazır olunca tüm stream'lerin END_STREAM
+        frame'leri **TEK `write()`** ile (tek TCP paketi) gönderilir → tüm istekler
+        sunucuya tek pakette, eş zamanlı varır. TLS zorunludur. PortSwigger'ın
+        single-packet tekniği.
     - `N` (2–255), `prefix gecikme` (son bayttan önce sunucunun prefix'i
       tamponlaması için beklenen süre), `timeout` ve `read-idle` ayarlanabilir.
     - **Seçili isteği yükle**: History/Repeater'daki isteği alır — TÜM header'lar
@@ -276,7 +282,8 @@ tarayıcı/cihaz ──▶ mitmdump (addon.py) ──▶ hedef
   kuyruğunu işleyip canlı bağlantılara mesaj enjekte eder.
 - `blackwall/web/app.py` — History/Repeater/Inspector/Intruder/OAST/WebSocket API'leri.
 - `blackwall/oast.py` — interactsh (OAST) istemcisi (saf Python).
-- `blackwall/raw.py` — ham TCP/TLS istek göndericisi (stdlib socket/ssl) + Race.
+- `blackwall/raw.py` — ham TCP/TLS istek göndericisi (stdlib socket/ssl); Race
+  last-byte (HTTP/1.1) ve single-packet (HTTP/2, `h2`).
 - `blackwall/httpsend.py` — Repeater & Intruder'ın ortak httpx gönderim yolu.
 - `blackwall/tools.py` — Decoder/JWT/Intruder yardımcıları.
 - `blackwall/web/static/` — tek sayfalık arayüz (vanilla JS).
