@@ -277,6 +277,31 @@ $("#clear").onclick = async () => {
   loadFlows();
 };
 
+$("#open-browser").onclick = async () => {
+  const btn = $("#open-browser");
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Açılıyor…";
+  try {
+    const res = await fetch("/api/browser/open", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.detail || "Tarayıcı başlatılamadı.");
+      return;
+    }
+    const name = (data.browser || "").split("/").pop();
+    const cert = data.cert_method === "nss"
+      ? "mitmproxy CA profile yüklendi"
+      : "sertifika hataları yoksayılıyor (CA/certutil yok)";
+    alert(`Tarayıcı açıldı: ${name}\n\nProxy önceden ayarlı, geçici profil kullanılıyor.\nSertifika: ${cert}.\nHTTPS sitelerini gezin; trafik History'ye düşecek.`);
+  } catch (e) {
+    alert("Tarayıcı başlatılamadı: " + e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+};
+
 function debounce(fn, ms) {
   let t;
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };

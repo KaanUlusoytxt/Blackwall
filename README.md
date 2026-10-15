@@ -70,9 +70,34 @@ PYTHONPATH="$PWD" .venv/bin/mitmdump -s blackwall/addon.py --listen-port 8080
 
 ---
 
-## mitmproxy sertifikası (HTTPS yakalama)
+## Hızlı başlangıç: Tarayıcı Aç
 
-HTTPS trafiğini çözebilmek için mitmproxy araya kendi sertifikasını koyar. Bunu
+Arayüzün üst çubuğundaki **🌐 Tarayıcı Aç** düğmesi (Burp'ün *Open Browser*
+karşılığı) hiçbir proxy/sertifika ayarı gerektirmeden kullanıma hazır bir
+tarayıcı açar:
+
+- Sistemde kurulu Chromium/Chrome **proxy'ye önceden ayarlı** başlatılır
+  (`--proxy-server=127.0.0.1:8080`).
+- **Ayrı, geçici bir profil** kullanılır (`--user-data-dir`); normal tarayıcınıza
+  ve profilinize dokunulmaz.
+- mitmproxy CA sertifikası bu geçici profilin **izole NSS deposuna** yüklenir
+  (`certutil` ile), böylece HTTPS siteleri uyarısız açılır. `certutil` veya CA
+  yoksa otomatik olarak `--ignore-certificate-errors` moduna düşülür.
+- Açılan tarayıcıda gezdiğiniz tüm HTTP(S) trafiği **History**'ye düşer.
+- **Uygulama/pencere kapanınca tarayıcı da kapanır** ve geçici profil silinir.
+
+Chromium/Chrome kurulu değilse düğme bunu bildirir (o zaman aşağıdaki manuel
+sertifika adımlarıyla kendi tarayıcınızı kullanın).
+
+> Not: İzole NSS deposu için `certutil` (NSS araçları) gerekir. Yoksa yine
+> çalışır; yalnızca sertifika hataları yoksayılır.
+
+---
+
+## mitmproxy sertifikası (HTTPS yakalama — manuel/kendi tarayıcınız)
+
+Kendi tarayıcınızı kullanacaksanız (ya da "Tarayıcı Aç" kullanılamıyorsa) HTTPS
+trafiğini çözebilmek için mitmproxy araya kendi sertifikasını koyar. Bunu
 istemcinin güvenmesi gerekir; aksi halde HTTPS siteleri sertifika hatası verir.
 
 ### 1. Sertifikayı üret

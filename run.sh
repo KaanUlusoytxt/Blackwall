@@ -14,6 +14,7 @@ if [ ! -x "$BIN/mitmdump" ] || [ ! -x "$BIN/uvicorn" ]; then
 fi
 
 export BLACKWALL_DB="${BLACKWALL_DB:-$PWD/blackwall.db}"
+export PROXY_PORT   # web süreci "Tarayıcı Aç"ta doğru proxy portunu kullansın
 
 echo "Proxy  : http://127.0.0.1:${PROXY_PORT}  (tarayıcı/cihaz proxy ayarı)"
 echo "Web UI : http://127.0.0.1:${WEB_PORT}"

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import os
 import time
 import uuid
 from pathlib import Path
@@ -18,7 +19,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from blackwall import db, httpsend, oast, raw, tools
+from blackwall import browser, db, httpsend, oast, raw, tools
 
 # Intruder sınırları
 MAX_REQUESTS = 10_000      # bir saldırıda üretilecek toplam istek üst sınırı
@@ -34,6 +35,26 @@ app = FastAPI(title="Blackwall", version="0.1.0")
 @app.on_event("startup")
 def _startup() -> None:
     db.init_db()
+
+
+@app.on_event("shutdown")
+def _shutdown() -> None:
+    # Uygulama kapanınca "Tarayıcı Aç" ile başlatılan tarayıcıları da kapat.
+    browser.close_all()
+
+
+# ---------------------------------------------------------------------------
+# Tarayıcı (Burp "Open Browser" karşılığı)
+# ---------------------------------------------------------------------------
+@app.post("/api/browser/open")
+def api_browser_open():
+    port = int(os.environ.get("PROXY_PORT", "8080"))
+    try:
+        return browser.open_browser(proxy_port=port)
+    except browser.BrowserNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Tarayıcı başlatılamadı: {e}")
 
 
 # ---------------------------------------------------------------------------

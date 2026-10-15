@@ -32,6 +32,8 @@ WEB_HOST = "127.0.0.1"
 
 # Alt süreçlerin ve addon'un aynı veritabanını kullanması için sabitle.
 os.environ.setdefault("BLACKWALL_DB", str(ROOT / "blackwall.db"))
+# Web süreci "Tarayıcı Aç"ta doğru proxy portunu bilsin.
+os.environ["PROXY_PORT"] = str(PROXY_PORT)
 
 # Proje kökü import yolunda olsun (addon ve web modülleri için).
 if str(ROOT) not in sys.path:
@@ -124,6 +126,13 @@ def main() -> int:
         if cleaned.is_set():
             return
         cleaned.set()
+        # "Tarayıcı Aç" ile açılmış tarayıcıları kapat (web shutdown da yapar;
+        # aynı süreçte olduğumuz için tekrar güvenli).
+        try:
+            from blackwall import browser
+            browser.close_all()
+        except Exception:
+            pass
         try:
             if proxy.poll() is None:
                 proxy.terminate()
