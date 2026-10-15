@@ -159,11 +159,12 @@ def main() -> int:
     print(f"DB     : {os.environ['BLACKWALL_DB']}")
 
     window = webview.create_window(
-        "Blackwall",
+        "Blackwall // Breach Protocol",
         url=f"http://{WEB_HOST}:{WEB_PORT}/",
         width=1400,
         height=900,
         min_size=(900, 600),
+        background_color="#0a0a0a",  # yüklenirken beyaz parlama olmasın
     )
 
     window.events.closed += cleanup

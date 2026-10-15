@@ -7,8 +7,16 @@
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+  <!-- Boot ekranı: saf CSS ile ~3sn sonra kaybolur, uygulamaya geçer -->
+  <div id="boot" aria-hidden="true">
+    <div class="boot-scan"></div>
+    <div class="boot-title">BLACKWALL</div>
+    <div class="boot-sub">// BREACH PROTOCOL</div>
+    <div class="boot-bar"></div>
+  </div>
+
   <header class="topbar">
-    <div class="brand">⬛ Blackwall</div>
+    <div class="brand">⬛ BLACKWALL<span style="color:var(--muted);font-size:10px;letter-spacing:.2em;margin-left:10px;">// BREACH PROTOCOL</span></div>
     <div class="controls">
       <input id="search" type="search" placeholder="url / host / method filtrele…" />
       <label class="auto"><input id="autorefresh" type="checkbox" checked /> otomatik yenile</label>
