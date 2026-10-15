@@ -651,6 +651,22 @@ def _as_bytes(x) -> bytes:
     return x if isinstance(x, (bytes, bytearray)) else str(x).encode("latin-1", "replace")
 
 
+def _h2_headers(method, path, authority, headers, malformed):
+    """h2 pseudo + normal header listesini kurar.
+
+    malformed=False: bağlantıya özel header'lar atılır, isimler küçültülür.
+    malformed=True: Host→:authority dışında dokunulmaz; DEĞERLERDEKİ \\r \\n \\t
+      \\0 \\xHH \\\\ escape'leri gerçek byte'a çevrilir (CRLF injection).
+    """
+    pseudo = [(":method", method), (":path", path),
+              (":scheme", "https"), (":authority", authority)]
+    if malformed:
+        reg = [(k, _decode_escapes(v)) for k, v in headers if k.lower() != "host"]
+    else:
+        reg = [(k.lower(), v) for k, v in headers if k.lower() not in _H2_FORBIDDEN]
+    return pseudo, reg
+
+
 def _render_h2_from_parts(pseudo: list, reg: list, body: bytes) -> bytes:
     """Frame'e giren pseudo + normal header'ları ve gövdeyi ham byte'lara çevirir.
 
@@ -737,19 +753,11 @@ def h2_send(
         started = time.time()
         meta: list[dict] = []   # {sid, index, sent}
         for i, rq in enumerate(requests):
-            method, path = rq["method"], rq["path"]
-            headers, body = rq["headers"], rq["body"] or b""
-            authority = rq.get("authority") or host
-            pseudo = [
-                (":method", method), (":path", path),
-                (":scheme", "https"), (":authority", authority),
-            ]
-            if malformed:
-                # Host → :authority dışında DOKUNMA. Header DEĞERİNDEKİ \r \n \t \0
-                # \xHH \\ escape'leri GERÇEK byte'a çevrilir (CRLF injection); isim aynen.
-                reg = [(k, _decode_escapes(v)) for k, v in headers if k.lower() != "host"]
-            else:
-                reg = [(k.lower(), v) for k, v in headers if k.lower() not in _H2_FORBIDDEN]
+            body = rq["body"] or b""
+            pseudo, reg = _h2_headers(
+                rq["method"], rq["path"], rq.get("authority") or host,
+                rq["headers"], malformed,
+            )
             sid = conn.get_next_available_stream_id()
             conn.send_headers(sid, pseudo + reg, end_stream=(not body))
             if body:
@@ -818,3 +826,195 @@ def h2_send(
             tsock.close()
         except Exception:
             pass
+
+
+def _h2_smuggle_round(host, port, smuggle, followup, delay, timeout, read_idle, sni) -> dict:
+    """Tek h2 bağlantısı: önce smuggle stream'i, hemen ardından takip stream'i.
+
+    Aynı bağlantı sayesinde smuggle'ın back-end'de bıraktığı kaçak prefix, takip
+    isteğinin önüne yapışabilir. Takip stream'inin yanıtı toplanıp döndürülür.
+    """
+    import h2.config
+    import h2.connection
+    import h2.events
+
+    out: dict = {"conn_error": None, "tls_version": None, "followup": None}
+    tsock = None
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        ctx.set_alpn_protocols(["h2"])
+        try:
+            tsock = ctx.wrap_socket(sock, server_hostname=(sni if sni else host))
+        except (ValueError, ssl.SSLError):
+            tsock = ctx.wrap_socket(sock, server_hostname=None)
+        out["tls_version"] = tsock.version()
+    except OSError as exc:
+        out["conn_error"] = f"Bağlantı hatası: {type(exc).__name__}: {exc}"
+        return out
+
+    if tsock.selected_alpn_protocol() != "h2":
+        try:
+            tsock.close()
+        except Exception:
+            pass
+        out["conn_error"] = "Sunucu HTTP/2 (ALPN h2) desteklemiyor"
+        return out
+
+    try:
+        # Doğrulama/normalizasyon KAPALI: malformed smuggle geçsin (takip zaten geçerli).
+        conn = h2.connection.H2Connection(config=h2.config.H2Configuration(
+            client_side=True, validate_outbound_headers=False,
+            normalize_outbound_headers=False, split_outbound_cookies=False))
+        conn.initiate_connection()
+        tsock.sendall(conn.data_to_send())
+
+        # 1) Smuggle stream (malformed) — aynı bağlantıda ilk stream.
+        sbody = smuggle["body"] or b""
+        ps, rs = _h2_headers(smuggle["method"], smuggle["path"],
+                             smuggle.get("authority") or host, smuggle["headers"], True)
+        s_sid = conn.get_next_available_stream_id()
+        conn.send_headers(s_sid, ps + rs, end_stream=(not sbody))
+        if sbody:
+            conn.send_data(s_sid, sbody, end_stream=True)
+        tsock.sendall(conn.data_to_send())
+
+        if delay:
+            time.sleep(delay)
+
+        # 2) Takip stream (geçerli) — AYNI bağlantıdan hemen ardından.
+        fbody = followup["body"] or b""
+        pf, rf = _h2_headers(followup["method"], followup["path"],
+                             followup.get("authority") or host, followup["headers"], False)
+        f_sid = conn.get_next_available_stream_id()
+        conn.send_headers(f_sid, pf + rf, end_stream=(not fbody))
+        if fbody:
+            conn.send_data(f_sid, fbody, end_stream=True)
+        tsock.sendall(conn.data_to_send())
+        f_sent = _render_h2_from_parts(pf, rf, fbody)
+
+        # Takip stream'inin yanıtını oku (smuggle stream RST/GOAWAY olabilir, yoksay).
+        acc = {"status": None, "headers": [], "body": b""}
+        started = time.time()
+        deadline = started + timeout
+        done = False
+        while not done:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            tsock.settimeout(min(read_idle, remaining))
+            try:
+                data = tsock.recv(65536)
+            except (socket.timeout, TimeoutError):
+                continue
+            if not data:
+                break
+            try:
+                events = conn.receive_data(data)
+            except Exception:
+                break
+            for ev in events:
+                sidv = getattr(ev, "stream_id", None)
+                if isinstance(ev, h2.events.ResponseReceived) and sidv == f_sid:
+                    acc["headers"] = ev.headers
+                    for k, v in ev.headers:
+                        kk = k.decode("latin-1") if isinstance(k, bytes) else k
+                        if kk == ":status":
+                            vv = v.decode("latin-1") if isinstance(v, bytes) else v
+                            try:
+                                acc["status"] = int(vv)
+                            except ValueError:
+                                pass
+                elif isinstance(ev, h2.events.DataReceived) and sidv == f_sid:
+                    acc["body"] += ev.data
+                    conn.acknowledge_received_data(ev.flow_controlled_length, sidv)
+                elif isinstance(ev, h2.events.StreamEnded) and sidv == f_sid:
+                    done = True
+                elif isinstance(ev, h2.events.ConnectionTerminated):
+                    done = True
+            outb = conn.data_to_send()
+            if outb:
+                tsock.sendall(outb)
+
+        full = _reconstruct_h2_response(acc["status"], acc["headers"], acc["body"])
+        out["followup"] = {
+            "sent_size": len(f_sent),
+            "sent_base64": base64.b64encode(f_sent).decode("ascii"),
+            "response_base64": base64.b64encode(full[:RACE_BODY_CAP]).decode("ascii"),
+            "response_size": len(full),
+            "duration_ms": (time.time() - started) * 1000.0,
+            "send_error": None,
+            "recv_error": None if acc["status"] is not None else "takip yanıtı alınamadı",
+        }
+        return out
+    except Exception as exc:
+        out["conn_error"] = f"{type(exc).__name__}: {exc}"
+        return out
+    finally:
+        try:
+            tsock.close()
+        except Exception:
+            pass
+
+
+def h2_smuggle_followup(
+    *,
+    host: str,
+    port: int,
+    smuggle: dict,
+    followup: dict,
+    rounds: int = 1,
+    delay_ms: int = 0,
+    timeout: float = 10.0,
+    read_idle: float = 3.0,
+    sni: Optional[str] = None,
+) -> dict:
+    """h2 smuggle + takip isteği — AYNI bağlantıda ardışık stream'ler.
+
+    Her tur YENİ bir h2 bağlantısı açar (prefix birikmesin): önce smuggle stream'i
+    (malformed; TE/CRLF ile back-end'de kaçak prefix bırakır), hemen ardından aynı
+    bağlantıdan takip stream'i. Takip yanıtı gösterilir — kaçak prefix burada yansır.
+    """
+    result: dict = {"requests": [], "error": None, "tls": True, "smuggle": True}
+    rounds = max(1, min(int(rounds), 100))
+    delay = max(0, min(int(delay_ms), 500)) / 1000.0
+
+    # Smuggle isteğinin gönderilen gösterimi (her turda aynı; bir kez göster).
+    ps, rs = _h2_headers(smuggle["method"], smuggle["path"],
+                         smuggle.get("authority") or host, smuggle["headers"], True)
+    smuggle_sent = _render_h2_from_parts(ps, rs, smuggle["body"] or b"")
+    result["requests"].append({
+        "index": 0,
+        "label": "smuggle (h2 malformed — her turda takip ile AYNI bağlantıda, ilk stream)",
+        "sent_size": len(smuggle_sent),
+        "sent_base64": base64.b64encode(smuggle_sent).decode("ascii"),
+        "response_base64": "",
+        "response_size": 0,
+        "duration_ms": 0.0,
+        "send_error": None,
+        "recv_error": None,
+    })
+
+    idx = 1
+    for rnd in range(rounds):
+        rr = _h2_smuggle_round(host, port, smuggle, followup, delay, timeout, read_idle, sni)
+        if rr.get("tls_version") and not result.get("tls_version"):
+            result["tls_version"] = rr["tls_version"]
+        if rr.get("conn_error"):
+            result["requests"].append({
+                "index": idx, "label": f"takip #{rnd + 1}",
+                "sent_size": 0, "sent_base64": "", "response_base64": "",
+                "response_size": 0, "duration_ms": 0.0,
+                "send_error": None, "recv_error": rr["conn_error"],
+            })
+        else:
+            e = dict(rr["followup"])
+            e["index"] = idx
+            e["label"] = f"takip #{rnd + 1}"
+            result["requests"].append(e)
+        idx += 1
+
+    return result

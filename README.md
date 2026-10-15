@@ -241,6 +241,14 @@ curl -x http://127.0.0.1:8080 \
           (hex: `61 61 61 0d 0a …`). Pseudo-header'lara dokunulmaz.
     - Her iki h2 modunda da **gönderilen istek** (okunur; "hex dump" kutusuyla hex)
       ve yanıt gösterilir — frame'deki ham byte'lar doğrulanabilir.
+      - **smuggle + takip isteği** kutusu (h2 request smuggling): her tur **YENİ bir
+        h2 bağlantısı** açar (prefix birikmesin) ve İstek 1 ile İstek 2'yi **AYNI
+        bağlantıda ardışık stream'ler** olarak gönderir — önce **İstek 1** (smuggle,
+        h2 malformed; TE/CRLF ile back-end'de kaçak prefix bırakır), ayarlanabilir
+        **gecikme** (0–500 ms) sonrası aynı bağlantıdan **İstek 2** (takip, normal h2).
+        Böylece kaçak prefix, back-end'de takip isteğinin önüne yapışabilir; **takip
+        yanıtı gösterilir** ve prefix orada yansır (tarayıcı gerekmez). **Tur sayısı**
+        ile otomatik tekrarlanır. İki istek textarea'sı: İstek 1 = smuggle, İstek 2 = takip.
     - **Satır sonu modu:**
       - `CRLF` (varsayılan) — textarea'daki satır sonları `\r\n` yapılır.
       - `LF` — satır sonları `\n` kalır (bare-LF testleri).

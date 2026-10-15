@@ -627,6 +627,8 @@ class RawSendRequest(BaseModel):
     tls: bool = False
     http_version: str = "1.1"        # 1.1 (ham socket) | 2 (h2)
     h2_malformed: bool = False       # h2: giden doğrulama/normalizasyon kapalı (smuggling)
+    smuggle: bool = False            # h2 smuggle + takip isteği modu
+    rounds: int = 1                  # smuggle modunda otomatik tekrar
     mode: str = "crlf"               # crlf | lf | escape (yalnızca 1.1)
     request1: str = ""
     request2: Optional[str] = None   # aynı socket/bağlantıda ikinci istek
@@ -644,6 +646,31 @@ async def api_raw_send(reqdata: RawSendRequest):
     if not (1 <= reqdata.port <= 65535):
         raise HTTPException(400, "port 1-65535 arası olmalı")
     sni = reqdata.sni.strip() if reqdata.sni else None
+
+    def _h2_req(text: str) -> dict:
+        try:
+            method, path, headers, body = tools.parse_request(text)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        authority = tools.host_header(headers) or (
+            host if reqdata.port == 443 else f"{host}:{reqdata.port}"
+        )
+        return {"method": method, "path": path, "headers": headers,
+                "body": body, "authority": authority}
+
+    if reqdata.smuggle:
+        # h2 smuggle (İstek 1, malformed) + takip (İstek 2, normal) — ayrı bağlantılar.
+        if not (reqdata.request2 and reqdata.request2.strip()):
+            raise HTTPException(400, "smuggle modu için İstek 2 (takip) gerekli")
+        result = await asyncio.to_thread(
+            raw.h2_smuggle_followup,
+            host=host, port=reqdata.port,
+            smuggle=_h2_req(reqdata.request1),
+            followup=_h2_req(reqdata.request2),
+            rounds=reqdata.rounds, delay_ms=reqdata.delay_ms,
+            timeout=reqdata.timeout, read_idle=reqdata.read_idle, sni=sni,
+        )
+        return result
 
     if reqdata.http_version == "2":
         # HTTP/2: ham istek metni parse edilip geçerli h2 isteğine çevrilir.

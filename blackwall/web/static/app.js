@@ -937,6 +937,8 @@ async function rawSend() {
     tls: $("#raw-tls").checked,
     http_version: $("#raw-httpver").value,
     h2_malformed: $("#raw-malformed").checked,
+    smuggle: $("#raw-smuggle").checked,
+    rounds: parseInt($("#raw-rounds").value, 10) || 1,
     mode: $("#raw-mode").value,
     request1: $("#raw-req1").value,
     request2: $("#raw-req2").value,
@@ -973,7 +975,8 @@ function renderRawResult(data) {
   for (const r of data.requests) {
     const div = document.createElement("div");
     div.className = "raw-result";
-    let head = `<span>istek #${r.index + 1}</span><span>gönderilen: ${r.sent_size} B</span>` +
+    const title = r.label ? escapeHtml(r.label) : `istek #${r.index + 1}`;
+    let head = `<span>${title}</span><span>gönderilen: ${r.sent_size} B</span>` +
       `<span>yanıt: ${r.response_size} B</span><span>${Math.round(r.duration_ms)} ms</span>`;
     if (r.send_error) head += `<span class="err">gönderme: ${escapeHtml(r.send_error)}</span>`;
     if (r.recv_error) head += `<span class="err">okuma: ${escapeHtml(r.recv_error)}</span>`;
@@ -999,6 +1002,8 @@ $("#raw-httpver").onchange = () => {
   $("#raw-tls").disabled = h2;
   $("#raw-mode").disabled = h2;              // h2'de istek parse edilir, satır sonu modu kullanılmaz
   $("#raw-malformed-wrap").style.display = h2 ? "" : "none";
+  $("#raw-smuggle-wrap").style.display = h2 ? "" : "none";
+  $("#raw-rounds-wrap").style.display = (h2 && $("#raw-smuggle").checked) ? "" : "none";
   $("#raw-state").textContent = h2
     ? "HTTP/2: ham istek parse edilip h2 isteği (HEADERS+DATA) olarak gönderilir"
     : "";
@@ -1007,6 +1012,13 @@ $("#raw-malformed").onchange = () => {
   $("#raw-state").textContent = $("#raw-malformed").checked
     ? "malformed: h2 doğrulama/normalizasyon KAPALI; content-length/transfer-encoding gibi header'lar frame'e aynen konur"
     : "HTTP/2: geçerli istek";
+};
+$("#raw-smuggle").onchange = () => {
+  const on = $("#raw-smuggle").checked;
+  $("#raw-rounds-wrap").style.display = on ? "" : "none";
+  $("#raw-state").textContent = on
+    ? "smuggle: İstek 1 (smuggle, malformed) arka planda → gecikme → İstek 2 (takip) ayrı bağlantıdan; takip yanıtı gösterilir. İki istek textarea'sını doldurun."
+    : "";
 };
 $("#raw-hex").onchange = () => { if (lastRawData) renderRawResult(lastRawData); };
 rawHint();

@@ -276,13 +276,23 @@ def parse_request(text: str) -> tuple[str, str, list[tuple[str, str]], bytes]:
     Host: satırına bağımlı kalınmaz (Repeater ile aynı hedef mantığı).
     """
     text = text.replace("\r\n", "\n")
+    # Baştaki boş satırları ayıkla (yapıştırma artığı) — ilk gerçek satır istek satırı.
+    text = text.lstrip("\n")
     head, _, body = text.partition("\n\n")
     lines = head.split("\n")
     if not lines or not lines[0].strip():
         raise ValueError("boş istek satırı")
-    parts = lines[0].split(" ")
-    method = parts[0].strip()
-    path = parts[1].strip() if len(parts) > 1 else "/"
+    # İstek satırı EN AZ method + path içermeli (METHOD /path [HTTP/x]). Tek token
+    # bir satır (ör. gövde satırı "search=x") request-line DEĞİLDİR → gövde method'a
+    # yazılmasın, açık hata ver.
+    parts = lines[0].split()
+    if len(parts) < 2:
+        raise ValueError(
+            f"geçersiz istek satırı: 'METHOD /path [HTTP/x]' bekleniyor, "
+            f"görülen: {lines[0]!r} (ilk satır istek satırı olmalı)"
+        )
+    method = parts[0]
+    path = parts[1]
 
     headers: list[tuple[str, str]] = []
     for ln in lines[1:]:
