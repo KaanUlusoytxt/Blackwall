@@ -93,6 +93,56 @@ export BLACKWALL_ALLOWED_HOSTS="0a1b00.web-security-academy.net, *.web-security-
 5. Restart Claude Desktop. You should see the **blackwall** tools available. Try:
    *"List the last 10 requests in Blackwall's history"* → `get_history`.
 
+## HTTP mode (Claude Desktop "custom connector")
+
+Instead of having the client spawn the process over stdio, you can run the server
+as a long-lived HTTP service and point Claude Desktop's **custom connector** form
+at its URL.
+
+Start it in HTTP (streamable-http) mode:
+
+```bash
+# default address: http://127.0.0.1:9000/mcp
+BLACKWALL_ALLOWED_HOSTS="*.web-security-academy.net" \
+  .venv/bin/python mcp_server.py http
+```
+
+Pick the transport via argument or env var; host/port/path are configurable:
+
+| Setting | Argument | Env var | Default |
+|---------|----------|---------|---------|
+| Transport | `http` / `sse` / `stdio` or `--transport` | `BLACKWALL_MCP_TRANSPORT` | `stdio` |
+| Host | `--host` | `BLACKWALL_MCP_HOST` | `127.0.0.1` |
+| Port | `--port` | `BLACKWALL_MCP_PORT` | `9000` |
+| Path | `--path` | `BLACKWALL_MCP_PATH` | `/mcp` |
+
+```bash
+# examples
+.venv/bin/python mcp_server.py http --port 9000 --path /mcp     # streamable-http
+.venv/bin/python mcp_server.py sse                              # SSE transport
+BLACKWALL_MCP_TRANSPORT=http BLACKWALL_MCP_PORT=9000 .venv/bin/python mcp_server.py
+```
+
+`http` is shorthand for the modern **streamable-http** transport; `sse` selects the
+older Server-Sent-Events transport (same tools, same security).
+
+**Connect in Claude Desktop:**
+
+1. Start Blackwall (`python app.py` or `./run.sh`).
+2. Start this server in HTTP mode (command above), with `BLACKWALL_ALLOWED_HOSTS` set.
+3. In Claude Desktop → **Settings → Connectors → Add custom connector**, enter the URL:
+
+   ```
+   http://127.0.0.1:9000/mcp
+   ```
+
+4. The **blackwall** tools appear once it connects. (The server keeps running in
+   your terminal; stop it with Ctrl-C.)
+
+> stdio mode (the previous section) is still supported and is what the MCP
+> Inspector and a `command`/`args` config entry use. HTTP mode is for the
+> custom-connector URL form.
+
 ## Use with any MCP client / quick check
 
 The server speaks MCP over stdio:

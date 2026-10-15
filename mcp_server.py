@@ -413,5 +413,62 @@ def check_oast() -> dict:
     }
 
 
+def _parse_args(argv: list[str]) -> dict:
+    """Taşıma seçimini argüman + ortam değişkeninden çözer.
+
+    Öncelik: komut satırı argümanı > ortam değişkeni > varsayılan.
+      transport: stdio (varsayılan) | http | streamable-http | sse
+      --host / BLACKWALL_MCP_HOST  (varsayılan 127.0.0.1)
+      --port / BLACKWALL_MCP_PORT  (varsayılan 9000)
+      --path / BLACKWALL_MCP_PATH  (varsayılan /mcp)
+    Kısayol: `mcp_server.py http` ya da `mcp_server.py sse`.
+    """
+    import argparse
+
+    p = argparse.ArgumentParser(description="Blackwall MCP server")
+    p.add_argument(
+        "transport", nargs="?",
+        default=os.environ.get("BLACKWALL_MCP_TRANSPORT", "stdio"),
+        help="stdio | http | streamable-http | sse (varsayılan: stdio)",
+    )
+    p.add_argument("--transport", dest="transport_opt", default=None)
+    p.add_argument("--host", default=os.environ.get("BLACKWALL_MCP_HOST", "127.0.0.1"))
+    p.add_argument("--port", type=int, default=int(os.environ.get("BLACKWALL_MCP_PORT", "9000")))
+    p.add_argument("--path", default=os.environ.get("BLACKWALL_MCP_PATH", "/mcp"))
+    ns = p.parse_args(argv)
+    transport = (ns.transport_opt or ns.transport or "stdio").lower()
+    if transport == "http":           # kolaylık: http -> streamable-http
+        transport = "streamable-http"
+    return {"transport": transport, "host": ns.host, "port": ns.port, "path": ns.path}
+
+
+def main(argv: Optional[list[str]] = None) -> None:
+    import sys
+
+    cfg = _parse_args(sys.argv[1:] if argv is None else argv)
+    transport = cfg["transport"]
+
+    if transport == "stdio":
+        # Inspector ve Claude Desktop'ın komutla başlattığı klasik mod.
+        mcp.run(transport="stdio")
+    elif transport == "streamable-http":
+        # Claude Desktop "özel bağdaştırıcı" (custom connector) için:
+        #   http://<host>:<port><path>  (varsayılan http://127.0.0.1:9000/mcp)
+        print(
+            f"Blackwall MCP (streamable-http) → http://{cfg['host']}:{cfg['port']}{cfg['path']}",
+            file=sys.stderr, flush=True,
+        )
+        mcp.run(transport="streamable-http", host=cfg["host"], port=cfg["port"],
+                streamable_http_path=cfg["path"])
+    elif transport == "sse":
+        print(
+            f"Blackwall MCP (sse) → http://{cfg['host']}:{cfg['port']}{cfg['path']}",
+            file=sys.stderr, flush=True,
+        )
+        mcp.run(transport="sse", host=cfg["host"], port=cfg["port"], sse_path=cfg["path"])
+    else:
+        raise SystemExit(f"Bilinmeyen taşıma: {transport} (stdio | http | streamable-http | sse)")
+
+
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    main()
