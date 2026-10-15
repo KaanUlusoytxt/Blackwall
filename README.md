@@ -22,20 +22,42 @@ python3 -m venv .venv
 
 ## Çalıştırma
 
-Tek komutla proxy + web UI:
+### Masaüstü uygulaması (önerilen)
+
+Blackwall kendi penceresinde (Burp gibi) açılır. Tek giriş noktası:
+
+```bash
+.venv/bin/python app.py
+```
+
+Bu komut proxy'yi (mitmdump), web sunucusunu (uvicorn) ve PyWebView penceresini
+birlikte başlatır; **pencereyi kapatınca üçü de temiz şekilde kapanır**. Tarayıcı
+sekmesi yerine arayüz doğrudan pencerede gelir. Çift tıklamayla açmak için bir
+`.desktop` kısayolu oluşturup komutu buna yazabilirsiniz.
+
+Masaüstü penceresi [PyWebView](https://pywebview.flask.dev/) + Qt (PyQt6 +
+QtWebEngine) backend'ini kullanır; ikisi de `requirements.txt` ile pip'ten gelir
+(sistemde ayrıca bir GUI kütüphanesi kurmanız gerekmez). Masaüstü ortamı/`DISPLAY`
+olmayan bir sunucuda pencere açılamaz — orada aşağıdaki başlıksız mod kullanılır.
+
+### Başlıksız mod (tarayıcıda)
+
+Pencere istemiyorsanız (ya da uzak sunucuda) proxy + web UI'ı tarayıcıda açın:
 
 ```bash
 ./run.sh
 ```
 
+Her iki modda da:
+
 - **Proxy**: `http://127.0.0.1:8080` — tarayıcı/cihaz proxy ayarına bunu girin
 - **Web UI**: `http://127.0.0.1:8000`
 - **DB**: `blackwall.db` (proje kökünde)
 
-Portları/DB'yi ortam değişkenleriyle değiştirebilirsiniz:
+Portları/DB'yi ortam değişkenleriyle değiştirebilirsiniz (hem `app.py` hem `run.sh`):
 
 ```bash
-PROXY_PORT=9090 WEB_PORT=9000 BLACKWALL_DB=/tmp/run1.db ./run.sh
+PROXY_PORT=9090 WEB_PORT=9000 BLACKWALL_DB=/tmp/run1.db .venv/bin/python app.py
 ```
 
 İki süreci elle de başlatabilirsiniz (aynı `BLACKWALL_DB` değerini verin):
