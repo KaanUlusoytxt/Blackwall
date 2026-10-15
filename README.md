@@ -96,6 +96,15 @@ To decrypt HTTPS, the client must trust the mitmproxy CA.
 - **Easiest:** click **🌐 Open Browser** in the top bar — it launches a throwaway Chromium with the CA pre-loaded into an isolated store. No manual setup.
 - **Your own browser:** the CA is generated under `~/.mitmproxy/` the first time the proxy runs (or visit `http://mitm.it` while the proxy is active). Import `~/.mitmproxy/mitmproxy-ca-cert.pem` into your browser/OS trust store and set its proxy to `127.0.0.1:8080`.
 
+## MCP server (Claude Desktop & other MCP clients)
+
+Blackwall ships an optional [MCP](https://modelcontextprotocol.io/) server
+([`mcp_server.py`](mcp_server.py)) so assistants like **Claude Desktop** can drive
+its tools (`get_history`, `get_flow`, `send_request`, `run_intruder`, `decode`,
+`jwt_decode`, `jwt_sign`, `check_oast`) as tool calls. It talks to a running
+Blackwall over HTTP and gates outbound tools behind a `BLACKWALL_ALLOWED_HOSTS`
+allow-list. Setup and the Claude Desktop config are in **[MCP_README.md](MCP_README.md)**.
+
 ## Dependencies
 
 All installed from `requirements.txt`. Blackwall itself is MIT-licensed; the libraries it builds on keep their own licenses:
