@@ -1,18 +1,18 @@
-"""Ham TCP/TLS istek göndericisi — request smuggling / desync araştırması için.
+"""Raw TCP/TLS request sender — for request smuggling / desync research.
 
-Tasarım ilkeleri:
-  * SADECE stdlib socket + ssl. httpx/requests YOK.
-  * Kullanıcının byte'larına dokunulmaz: Content-Length / Transfer-Encoding
-    otomatik hesaplanmaz veya düzeltilmez, header sırası korunur, chunked gövde
-    olduğu gibi gönderilir.
-  * Tek bağlantıda (tek socket) arka arkaya birden çok istek gönderilebilir —
-    CL.TE / TE.CL gibi desync testleri için şart.
+Design principles:
+  * ONLY stdlib socket + ssl. NO httpx/requests.
+  * The user's bytes are untouched: Content-Length / Transfer-Encoding are not
+    auto-computed or fixed, header order is preserved, and a chunked body is sent
+    as-is.
+  * Multiple requests can be sent back-to-back on a single connection (one socket) —
+    required for desync tests like CL.TE / TE.CL.
 
-Satır sonu modları (textarea'da literal CR yazılamadığı için):
-  * crlf   — gerçek satır sonları CRLF'e çevrilir (normal istekler için).
-  * lf     — gerçek satır sonları LF kalır (UTF-8).
-  * escape — gerçek satır sonları yok sayılır; yalnızca \\r \\n \\t \\0 \\xHH \\\\
-             escape'leri byte üretir; diğer karakterler UTF-8. Tam byte kontrolü.
+Line-ending modes (since a literal CR cannot be typed in a textarea):
+  * crlf   — real line endings are converted to CRLF (for normal requests).
+  * lf     — real line endings stay LF (UTF-8).
+  * escape — real line endings are ignored; only \\r \\n \\t \\0 \\xHH \\\\
+             escapes produce bytes; other characters are UTF-8. Full byte control.
 """
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ import time
 from collections import Counter
 from typing import Optional
 
-MAX_RACE = 255          # eşzamanlı bağlantı üst sınırı
-RACE_BODY_CAP = 65536   # saklanan yanıt gövdesi üst sınırı (byte)
+MAX_RACE = 255          # max number of concurrent connections
+RACE_BODY_CAP = 65536   # max stored response body (bytes)
 
 
 def _decode_escapes(text: str) -> bytes:
@@ -34,7 +34,7 @@ def _decode_escapes(text: str) -> bytes:
     while i < n:
         c = text[i]
         if c in ("\r", "\n"):
-            # escape modunda gerçek satır sonları yalnızca görseldir, yok sayılır
+            # in escape mode real line endings are purely visual and ignored
             i += 1
             continue
         if c == "\\" and i + 1 < n:
@@ -51,7 +51,7 @@ def _decode_escapes(text: str) -> bytes:
                     continue
                 except ValueError:
                     pass
-            # bilinmeyen escape: ters taksimi aynen bırak
+            # unknown escape: keep the backslash as-is
             out.append(0x5C)
             i += 1
             continue
@@ -61,7 +61,7 @@ def _decode_escapes(text: str) -> bytes:
 
 
 def encode_payload(text: str, mode: str) -> bytes:
-    """Metni, satır sonu moduna göre ham byte'lara çevirir (başka değişiklik yok)."""
+    """Convert text to raw bytes per the line-ending mode (no other changes)."""
     if mode == "lf":
         return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
     if mode == "crlf":
@@ -69,13 +69,13 @@ def encode_payload(text: str, mode: str) -> bytes:
         return normalized.replace("\n", "\r\n").encode("utf-8")
     if mode == "escape":
         return _decode_escapes(text)
-    raise ValueError(f"bilinmeyen mod: {mode}")
+    raise ValueError(f"unknown mode: {mode}")
 
 
 def open_connection(
     host: str, port: int, use_tls: bool, timeout: float, sni: Optional[str] = None
 ) -> tuple[socket.socket, Optional[str]]:
-    """Ham TCP (opsiyonel TLS) bağlantı açar. Hata OSError/SSLError olarak yükselir."""
+    """Open a raw TCP (optionally TLS) connection. Errors raise as OSError/SSLError."""
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     tls_version: Optional[str] = None
@@ -83,12 +83,12 @@ def open_connection(
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        # Repeater'ın (httpx) TLS'iyle aynı: ALPN yalnızca http/1.1 (h2'ye çıkma).
+        # Same TLS as Repeater (httpx): ALPN is http/1.1 only (do not negotiate h2).
         try:
             ctx.set_alpn_protocols(["http/1.1"])
         except NotImplementedError:
             pass
-        # SNI gönderilir (server_hostname); IP için gönderilemeyebilir.
+        # SNI is sent (server_hostname); it may not be sent for an IP.
         server_hostname = sni if sni else host
         try:
             sock = ctx.wrap_socket(sock, server_hostname=server_hostname)
@@ -99,7 +99,7 @@ def open_connection(
 
 
 def hexdump(data: bytes) -> str:
-    """Byte dizisini klasik hex dump biçiminde döndürür (debug)."""
+    """Return a classic hex dump of the byte sequence (debug)."""
     lines = []
     for off in range(0, len(data), 16):
         chunk = data[off:off + 16]
@@ -110,7 +110,7 @@ def hexdump(data: bytes) -> str:
 
 
 def _recv_response(sock: socket.socket, total_timeout: float, read_idle: float) -> bytes:
-    """Bağlantı kapanana, boşa çıkana (read_idle) ya da total_timeout dolana kadar okur."""
+    """Read until the connection closes, goes idle (read_idle), or total_timeout elapses."""
     chunks: list[bytes] = []
     deadline = time.time() + total_timeout
     while True:
@@ -121,17 +121,17 @@ def _recv_response(sock: socket.socket, total_timeout: float, read_idle: float) 
         try:
             data = sock.recv(65536)
         except (socket.timeout, TimeoutError):
-            break  # bir süredir veri yok → yanıt (şimdilik) tamam
+            break  # no data for a while -> response (for now) complete
         except ssl.SSLWantReadError:
             continue
         if not data:
-            break  # karşı taraf kapattı
+            break  # the peer closed
         chunks.append(data)
     return b"".join(chunks)
 
 
 def _header_dict(block: bytes) -> dict[str, str]:
-    """Yanıt başlık bloğunu (status satırı hariç) küçük harfli dict'e çevirir."""
+    """Convert the response header block (excluding the status line) to a lowercased dict."""
     out: dict[str, str] = {}
     for line in block.split(b"\r\n")[1:]:
         if b":" not in line:
@@ -142,7 +142,7 @@ def _header_dict(block: bytes) -> dict[str, str]:
 
 
 def _chunked_end(data: bytes, start: int) -> Optional[int]:
-    """chunked gövdenin bittiği indeksi döndürür (son 0-chunk + sonlandırıcı sonrası)."""
+    """Return the index where the chunked body ends (after the final 0-chunk + terminator)."""
     i, n = start, len(data)
     while i < n:
         le = data.find(b"\r\n", i)
@@ -155,31 +155,31 @@ def _chunked_end(data: bytes, start: int) -> Optional[int]:
             return None
         i = le + 2
         if size == 0:
-            # trailer'lar varsa boş satıra kadar tüket
+            # if trailers exist, consume up to the blank line
             while i < n:
                 le2 = data.find(b"\r\n", i)
                 if le2 == -1:
                     return None
-                if le2 == i:          # boş satır → chunked sonu
+                if le2 == i:          # blank line -> end of chunked
                     return i + 2
                 i = le2 + 2
             return None
-        i += size + 2                 # chunk verisi + ardından gelen \r\n
+        i += size + 2                 # chunk data + the following \r\n
     return None
 
 
 def split_http_responses(data: bytes) -> list[bytes]:
-    """Tek socket'ten birbirine eklenmiş HTTP/1.1 yanıtlarını ayrı ayrı döndürür.
+    """Split concatenated HTTP/1.1 responses from a single socket into separate ones.
 
-    Gövde uzunluğu Transfer-Encoding: chunked, yoksa Content-Length, o da yoksa
-    EOF'a kadar (yalnızca son yanıt) kabul edilir.
+    Body length is taken from Transfer-Encoding: chunked, else Content-Length, else
+    up to EOF (only for the last response).
     """
     responses: list[bytes] = []
     i, n = 0, len(data)
     while i < n:
         hdr_end = data.find(b"\r\n\r\n", i)
         if hdr_end == -1:
-            responses.append(data[i:])        # eksik/ham kalan
+            responses.append(data[i:])        # incomplete/raw remainder
             break
         headers = _header_dict(data[i:hdr_end])
         body_start = hdr_end + 4
@@ -197,10 +197,10 @@ def split_http_responses(data: bytes) -> list[bytes]:
                 length = 0
             end = body_start + length
             if end > n:
-                responses.append(data[i:]); break   # eksik gövde
+                responses.append(data[i:]); break   # incomplete body
             responses.append(data[i:end]); i = end
         else:
-            responses.append(data[i:]); break        # CL/chunked yok → EOF'a kadar
+            responses.append(data[i:]); break        # no CL/chunked -> up to EOF
     return responses
 
 
@@ -215,12 +215,13 @@ def send_raw(
     delay_ms: int = 0,
     sni: Optional[str] = None,
 ) -> dict:
-    """Tek socket açar ve payload'ları gönderir.
+    """Open one socket and send the payloads.
 
-    * Tek istek: gönder → yanıtı oku (mevcut davranış).
-    * İki+ istek (smuggling): tüm istekler ilk yanıtı beklemeden art arda aynı
-      sokete yazılır (pipeline), sonra gelen TÜM veri okunup yanıtlara ayrılır.
-      Böylece `Connection: close` olsa bile ikinci yanıt (ör. 404) yakalanır.
+    * Single request: send -> read the response (existing behavior).
+    * Two+ requests (smuggling): all requests are written to the same socket
+      back-to-back without waiting for the first response (pipeline), then ALL
+      incoming data is read and split into responses. This way the second response
+      (e.g. 404) is captured even with `Connection: close`.
     """
     result: dict = {"requests": [], "error": None, "tls": use_tls}
     sock: Optional[socket.socket] = None
@@ -229,7 +230,7 @@ def send_raw(
         if tls_version:
             result["tls_version"] = tls_version
     except OSError as exc:
-        result["error"] = f"Bağlantı hatası: {type(exc).__name__}: {exc}"
+        result["error"] = f"Connection error: {type(exc).__name__}: {exc}"
         if sock:
             try:
                 sock.close()
@@ -251,7 +252,7 @@ def send_raw(
 
 
 def _send_sequential(sock, payloads, result, timeout, read_idle, delay_ms) -> None:
-    """Tek istek (ve genel sıralı) davranışı: gönder → yanıtı oku."""
+    """Single-request (and generally sequential) behavior: send -> read the response."""
     for i, payload in enumerate(payloads):
         if i > 0 and delay_ms > 0:
             time.sleep(delay_ms / 1000.0)
@@ -285,7 +286,7 @@ def _send_sequential(sock, payloads, result, timeout, read_idle, delay_ms) -> No
 
 
 def _send_pipeline(sock, payloads, result, timeout, read_idle, delay_ms) -> None:
-    """Pipeline: tüm istekleri art arda yaz, sonra tüm veriyi oku ve yanıtlara ayır."""
+    """Pipeline: write all requests back-to-back, then read all data and split into responses."""
     entries: list[dict] = []
     for i, payload in enumerate(payloads):
         entries.append({
@@ -300,7 +301,7 @@ def _send_pipeline(sock, payloads, result, timeout, read_idle, delay_ms) -> None
         })
 
     started = time.time()
-    # Tüm payload'ları ilk yanıtı beklemeden art arda yaz.
+    # Write all payloads back-to-back without waiting for the first response.
     for i, payload in enumerate(payloads):
         if i > 0 and delay_ms > 0:
             time.sleep(delay_ms / 1000.0)
@@ -311,7 +312,7 @@ def _send_pipeline(sock, payloads, result, timeout, read_idle, delay_ms) -> None
             entries[i]["send_error"] = f"{type(exc).__name__}: {exc}"
             break
 
-    # Gelen TÜM veriyi oku (Connection: close ise EOF, değilse read_idle ile dur).
+    # Read ALL incoming data (EOF if Connection: close, otherwise stop on read_idle).
     recv_error = None
     raw = b""
     try:
@@ -331,7 +332,7 @@ def _send_pipeline(sock, payloads, result, timeout, read_idle, delay_ms) -> None
             entry["recv_error"] = recv_error
         result["requests"].append(entry)
 
-    # İstek sayısından fazla yanıt geldiyse (nadir) son isteğe ekle.
+    # If more responses arrived than requests (rare), append to the last request.
     if len(responses) > len(entries) and entries:
         extra = b"".join(responses[len(entries):])
         last = result["requests"][-1]
@@ -365,15 +366,15 @@ def race_last_byte(
     prefix_delay_ms: int = 100,
     sni: Optional[str] = None,
 ) -> dict:
-    """Last-byte synchronization ile race condition saldırısı.
+    """Race-condition attack via last-byte synchronization.
 
-    Her bağlantı isteğin SON baytı hariç tümünü gönderir, kısa bir süre bekler
-    (sunucu prefix'i tamponlasın), sonra bir bariyerde buluşup son baytı aynı
-    anda basar → istekler sunucuya ~eşzamanlı varır (HTTP/1.1).
+    Each connection sends all but the LAST byte of the request, waits a short while
+    (so the server buffers the prefix), then meets at a barrier and flushes the last
+    byte together -> requests arrive at the server ~simultaneously (HTTP/1.1).
     """
     if len(payload) < 1:
-        return {"error": "boş istek gönderilemez", "results": [], "count": 0}
-    count = max(1, min(count, MAX_RACE))   # N=1 → tek istek
+        return {"error": "cannot send an empty request", "results": [], "count": 0}
+    count = max(1, min(count, MAX_RACE))   # N=1 -> single request
     prefix, last = payload[:-1], payload[-1:]
     results: list[Optional[dict]] = [None] * count
     barrier = threading.Barrier(count)
@@ -394,7 +395,7 @@ def race_last_byte(
             entry["error"] = f"{type(exc).__name__}: {exc}"
             results[idx] = entry
             try:
-                barrier.abort()  # bekleyen diğer thread'leri serbest bırak
+                barrier.abort()  # release the other waiting threads
             except Exception:
                 pass
             if sock:
@@ -404,11 +405,11 @@ def race_last_byte(
                     pass
             return
 
-        # Senkronizasyon noktası: tüm bağlantılar hazır → son baytları birlikte bas
+        # Sync point: all connections ready -> flush the last bytes together
         try:
             barrier.wait(timeout=max(5.0, timeout))
         except threading.BrokenBarrierError:
-            pass  # bir bağlantı düştü; yine de son baytı gönder
+            pass  # a connection dropped; send the last byte anyway
 
         entry["sent_offset_ms"] = (time.perf_counter() - t0) * 1000.0
         try:
@@ -438,8 +439,8 @@ def race_last_byte(
 
 
 def _finalize_race(results: list[dict], error: Optional[str] = None) -> dict:
-    """Ortak sonuç paketleme: imza, race-kazanan (distinct) ve sync yayılımı."""
-    # Race kazananı: en sık görülen (status, uzunluk) imzası "normal"; farklılar distinct.
+    """Shared result packaging: signature, race-winner (distinct), and sync spread."""
+    # Race winner: the most common (status, length) signature is "normal"; others are distinct.
     sigs = Counter((r["status"], r["response_size"]) for r in results if r["error"] is None)
     majority = sigs.most_common(1)[0][0] if sigs else None
     for r in results:
@@ -476,10 +477,10 @@ def race_single_packet(
 ) -> dict:
     """HTTP/2 single-packet attack.
 
-    Tek TLS bağlantısı (ALPN h2) açar; N isteği ayrı stream olarak hazırlar
-    (HEADERS + varsa gövde, END_STREAM YOK). Hepsi hazır olunca tüm stream'lerin
-    END_STREAM frame'lerini TEK write() ile gönderir → istekler sunucuya tek TCP
-    paketinde, eş zamanlı varır.
+    Opens one TLS connection (ALPN h2); prepares N requests as separate streams
+    (HEADERS + body if any, NO END_STREAM). Once all are ready, it sends every
+    stream's END_STREAM frame in a SINGLE write() -> the requests arrive at the
+    server in one TCP packet, simultaneously.
     """
     import h2.config
     import h2.connection
@@ -488,7 +489,7 @@ def race_single_packet(
     count = max(1, min(count, MAX_RACE))
     body = body or b""
 
-    # Bağlantı (ALPN h2 zorunlu)
+    # Connection (ALPN h2 required)
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -502,14 +503,14 @@ def race_single_packet(
         except (ValueError, ssl.SSLError):
             tsock = ctx.wrap_socket(sock, server_hostname=None)
     except OSError as exc:
-        return _finalize_race([], error=f"Bağlantı hatası: {type(exc).__name__}: {exc}")
+        return _finalize_race([], error=f"Connection error: {type(exc).__name__}: {exc}")
 
     if tsock.selected_alpn_protocol() != "h2":
         try:
             tsock.close()
         except Exception:
             pass
-        return _finalize_race([], error="Sunucu HTTP/2 (ALPN h2) desteklemiyor")
+        return _finalize_race([], error="Server does not support HTTP/2 (ALPN h2)")
 
     try:
         conn = h2.connection.H2Connection(
@@ -518,7 +519,7 @@ def race_single_packet(
         conn.initiate_connection()
         tsock.sendall(conn.data_to_send())
 
-        # h2 başlıkları: pseudo-header'lar önce; bağlantıya özel + Host/CL at.
+        # h2 headers: pseudo-headers first; drop connection-specific + Host/CL.
         if not authority:
             authority = tools_host_header(headers) or host
         forbidden = {
@@ -532,8 +533,8 @@ def race_single_packet(
             (":authority", authority),
         ] + [(k.lower(), v) for k, v in headers if k.lower() not in forbidden]
 
-        # Hazırlık (prime): HEADERS (END_STREAM YOK) + varsa gövde (END_STREAM YOK).
-        # Böylece gövdesiz istekler de END_STREAM'i salvo'da alır → single-packet.
+        # Prime: HEADERS (NO END_STREAM) + body if any (NO END_STREAM).
+        # So even body-less requests get END_STREAM in the salvo -> single-packet.
         stream_ids: list[int] = []
         for _ in range(count):
             sid = conn.get_next_available_stream_id()
@@ -545,19 +546,19 @@ def race_single_packet(
         if prime:
             tsock.sendall(prime)
 
-        # Sunucu prime'ı tamponlasın diye kısa bekle.
+        # Short wait so the server buffers the prime.
         time.sleep(max(0, prefix_delay_ms) / 1000.0)
 
-        # Salvo: tüm stream'lerin END_STREAM frame'leri TEK write() ile.
+        # Salvo: every stream's END_STREAM frame in a SINGLE write().
         for sid in stream_ids:
             conn.end_stream(sid)
         salvo = conn.data_to_send()
 
         t0 = time.perf_counter()
         if salvo:
-            tsock.sendall(salvo)   # TEK PAKET: tüm END_STREAM frame'leri
+            tsock.sendall(salvo)   # SINGLE PACKET: all END_STREAM frames
 
-        # Yanıtları oku
+        # Read the responses
         idx_of = {sid: i for i, sid in enumerate(stream_ids)}
         acc: dict[int, dict] = {
             sid: {"status": None, "headers": [], "body": b"", "arrival": None}
@@ -573,9 +574,9 @@ def race_single_packet(
             try:
                 data = tsock.recv(65536)
             except (socket.timeout, TimeoutError):
-                continue   # idle boşluk; tüm stream'ler bitene/deadline'a kadar bekle
+                continue   # idle gap; wait until all streams end / the deadline
             if not data:
-                break      # bağlantı kapandı
+                break      # connection closed
             for ev in conn.receive_data(data):
                 if isinstance(ev, h2.events.ResponseReceived):
                     acc[ev.stream_id]["headers"] = ev.headers
@@ -597,7 +598,7 @@ def race_single_packet(
             if out:
                 tsock.sendall(out)
 
-        # Sonuç satırları (stream sırası = index)
+        # Result rows (stream order = index)
         results: list[dict] = []
         for sid in stream_ids:
             a = acc[sid]
@@ -606,9 +607,9 @@ def race_single_packet(
                 "index": idx_of[sid],
                 "status": a["status"],
                 "response_size": len(full),
-                "sent_offset_ms": 0.0,                  # tek paket → hepsi aynı an
+                "sent_offset_ms": 0.0,                  # single packet -> all at once
                 "arrival_ms": a["arrival"],
-                "error": None if a["status"] is not None else "yanıt alınamadı",
+                "error": None if a["status"] is not None else "no response received",
                 "response_base64": base64.b64encode(full[:RACE_BODY_CAP]).decode("ascii"),
             })
         return _finalize_race(results)
@@ -622,7 +623,7 @@ def race_single_packet(
 
 
 def _reconstruct_h2_response(status, headers, body: bytes) -> bytes:
-    """h2 yanıtını görüntü için HTTP/2 metnine benzetir."""
+    """Approximate the h2 response as HTTP/2 text for display."""
     lines = [f"HTTP/2 {status if status is not None else '?'}"]
     for k, v in headers:
         kk = k.decode("latin-1") if isinstance(k, bytes) else k
@@ -652,11 +653,11 @@ def _as_bytes(x) -> bytes:
 
 
 def _h2_headers(method, path, authority, headers, malformed):
-    """h2 pseudo + normal header listesini kurar.
+    """Build the h2 pseudo + regular header list.
 
-    malformed=False: bağlantıya özel header'lar atılır, isimler küçültülür.
-    malformed=True: Host→:authority dışında dokunulmaz; DEĞERLERDEKİ \\r \\n \\t
-      \\0 \\xHH \\\\ escape'leri gerçek byte'a çevrilir (CRLF injection).
+    malformed=False: connection-specific headers are dropped, names lowercased.
+    malformed=True: untouched except Host->:authority; \\r \\n \\t \\0 \\xHH
+      \\\\ escapes INSIDE VALUES are turned into real bytes (CRLF injection).
     """
     pseudo = [(":method", method), (":path", path),
               (":scheme", "https"), (":authority", authority)]
@@ -668,10 +669,10 @@ def _h2_headers(method, path, authority, headers, malformed):
 
 
 def _render_h2_from_parts(pseudo: list, reg: list, body: bytes) -> bytes:
-    """Frame'e giren pseudo + normal header'ları ve gövdeyi ham byte'lara çevirir.
+    """Render the pseudo + regular headers and body that enter the frame as raw bytes.
 
-    reg değerleri bytes olabilir (malformed modda escape çözümünden gelen ham CRLF
-    vb.); bu byte'lar olduğu gibi inline yazılır ki hex dump'ta görünsün.
+    reg values may be bytes (raw CRLF etc. from escape decoding in malformed mode);
+    these bytes are written inline as-is so they appear in the hex dump.
     """
     out = bytearray()
     for k, v in pseudo:
@@ -693,18 +694,19 @@ def h2_send(
     sni: Optional[str] = None,
     malformed: bool = False,
 ) -> dict:
-    """Tek TLS bağlantısı (ALPN h2) üzerinden HTTP/2 istek(ler)i gönderir.
+    """Send HTTP/2 request(s) over a single TLS connection (ALPN h2).
 
-    requests: [{method, path, headers, body, authority}] — her biri ayrı stream.
-    Yanıtlar toplanıp send_raw ile aynı sonuç şekline (requests listesi) çevrilir.
+    requests: [{method, path, headers, body, authority}] — each a separate stream.
+    Responses are collected and converted to the same result shape as send_raw
+    (a requests list).
 
-    malformed=False (Katman 1): geçerli istek — bağlantıya özel header'lar (host,
-      content-length, transfer-encoding, connection, ...) atılır, isimler küçültülür,
-      h2 giden doğrulaması açık.
-    malformed=True (h2 smuggling): h2 giden doğrulaması/normalizasyonu KAPALI;
-      normalde yasak header'lar (content-length, transfer-encoding, ...) ham istekte
-      yazıldığı gibi frame'e konur. Yalnızca Host → :authority eşlenir; diğer
-      header'lara (isim/değer) dokunulmaz.
+    malformed=False (Layer 1): valid request — connection-specific headers (host,
+      content-length, transfer-encoding, connection, ...) are dropped, names
+      lowercased, h2 outbound validation on.
+    malformed=True (h2 smuggling): h2 outbound validation/normalization OFF;
+      normally-forbidden headers (content-length, transfer-encoding, ...) go into the
+      frame exactly as written in the raw request. Only Host -> :authority is mapped;
+      other headers (name/value) are untouched.
     """
     import h2.config
     import h2.connection
@@ -725,7 +727,7 @@ def h2_send(
             tsock = ctx.wrap_socket(sock, server_hostname=None)
         result["tls_version"] = tsock.version()
     except OSError as exc:
-        result["error"] = f"Bağlantı hatası: {type(exc).__name__}: {exc}"
+        result["error"] = f"Connection error: {type(exc).__name__}: {exc}"
         return result
 
     if tsock.selected_alpn_protocol() != "h2":
@@ -733,7 +735,7 @@ def h2_send(
             tsock.close()
         except Exception:
             pass
-        result["error"] = "Sunucu HTTP/2 (ALPN h2) desteklemiyor"
+        result["error"] = "Server does not support HTTP/2 (ALPN h2)"
         return result
 
     try:
@@ -761,7 +763,7 @@ def h2_send(
             sid = conn.get_next_available_stream_id()
             conn.send_headers(sid, pseudo + reg, end_stream=(not body))
             if body:
-                # Akış kontrolü basit: tipik istek gövdeleri pencereye sığar.
+                # Flow control is simple: typical request bodies fit the window.
                 conn.send_data(sid, body, end_stream=True)
             meta.append({
                 "sid": sid, "index": i,
@@ -815,7 +817,7 @@ def h2_send(
                 "response_size": len(full),
                 "duration_ms": elapsed,
                 "send_error": None,
-                "recv_error": None if a["status"] is not None else "yanıt alınamadı",
+                "recv_error": None if a["status"] is not None else "no response received",
             })
         return result
     except Exception as exc:
@@ -829,10 +831,11 @@ def h2_send(
 
 
 def _h2_smuggle_round(host, port, smuggle, followup, delay, timeout, read_idle, sni) -> dict:
-    """Tek h2 bağlantısı: önce smuggle stream'i, hemen ardından takip stream'i.
+    """One h2 connection: the smuggle stream first, then the follow-up stream.
 
-    Aynı bağlantı sayesinde smuggle'ın back-end'de bıraktığı kaçak prefix, takip
-    isteğinin önüne yapışabilir. Takip stream'inin yanıtı toplanıp döndürülür.
+    Because it is the same connection, the smuggled prefix left on the back-end can
+    stick in front of the follow-up request. The follow-up stream's response is
+    collected and returned.
     """
     import h2.config
     import h2.connection
@@ -853,7 +856,7 @@ def _h2_smuggle_round(host, port, smuggle, followup, delay, timeout, read_idle, 
             tsock = ctx.wrap_socket(sock, server_hostname=None)
         out["tls_version"] = tsock.version()
     except OSError as exc:
-        out["conn_error"] = f"Bağlantı hatası: {type(exc).__name__}: {exc}"
+        out["conn_error"] = f"Connection error: {type(exc).__name__}: {exc}"
         return out
 
     if tsock.selected_alpn_protocol() != "h2":
@@ -861,18 +864,18 @@ def _h2_smuggle_round(host, port, smuggle, followup, delay, timeout, read_idle, 
             tsock.close()
         except Exception:
             pass
-        out["conn_error"] = "Sunucu HTTP/2 (ALPN h2) desteklemiyor"
+        out["conn_error"] = "Server does not support HTTP/2 (ALPN h2)"
         return out
 
     try:
-        # Doğrulama/normalizasyon KAPALI: malformed smuggle geçsin (takip zaten geçerli).
+        # Validation/normalization OFF: let the malformed smuggle through (follow-up is valid).
         conn = h2.connection.H2Connection(config=h2.config.H2Configuration(
             client_side=True, validate_outbound_headers=False,
             normalize_outbound_headers=False, split_outbound_cookies=False))
         conn.initiate_connection()
         tsock.sendall(conn.data_to_send())
 
-        # 1) Smuggle stream (malformed) — aynı bağlantıda ilk stream.
+        # 1) Smuggle stream (malformed) — the first stream on the same connection.
         sbody = smuggle["body"] or b""
         ps, rs = _h2_headers(smuggle["method"], smuggle["path"],
                              smuggle.get("authority") or host, smuggle["headers"], True)
@@ -885,7 +888,7 @@ def _h2_smuggle_round(host, port, smuggle, followup, delay, timeout, read_idle, 
         if delay:
             time.sleep(delay)
 
-        # 2) Takip stream (geçerli) — AYNI bağlantıdan hemen ardından.
+        # 2) Follow-up stream (valid) — right after, on the SAME connection.
         fbody = followup["body"] or b""
         pf, rf = _h2_headers(followup["method"], followup["path"],
                              followup.get("authority") or host, followup["headers"], False)
@@ -896,7 +899,7 @@ def _h2_smuggle_round(host, port, smuggle, followup, delay, timeout, read_idle, 
         tsock.sendall(conn.data_to_send())
         f_sent = _render_h2_from_parts(pf, rf, fbody)
 
-        # Takip stream'inin yanıtını oku (smuggle stream RST/GOAWAY olabilir, yoksay).
+        # Read the follow-up stream's response (the smuggle stream may RST/GOAWAY, ignore it).
         acc = {"status": None, "headers": [], "body": b""}
         started = time.time()
         deadline = started + timeout
@@ -947,7 +950,7 @@ def _h2_smuggle_round(host, port, smuggle, followup, delay, timeout, read_idle, 
             "response_size": len(full),
             "duration_ms": (time.time() - started) * 1000.0,
             "send_error": None,
-            "recv_error": None if acc["status"] is not None else "takip yanıtı alınamadı",
+            "recv_error": None if acc["status"] is not None else "no follow-up response received",
         }
         return out
     except Exception as exc:
@@ -972,23 +975,24 @@ def h2_smuggle_followup(
     read_idle: float = 3.0,
     sni: Optional[str] = None,
 ) -> dict:
-    """h2 smuggle + takip isteği — AYNI bağlantıda ardışık stream'ler.
+    """h2 smuggle + follow-up request — consecutive streams on the SAME connection.
 
-    Her tur YENİ bir h2 bağlantısı açar (prefix birikmesin): önce smuggle stream'i
-    (malformed; TE/CRLF ile back-end'de kaçak prefix bırakır), hemen ardından aynı
-    bağlantıdan takip stream'i. Takip yanıtı gösterilir — kaçak prefix burada yansır.
+    Each round opens a NEW h2 connection (so the prefix does not accumulate): the
+    smuggle stream first (malformed; leaves a smuggled prefix on the back-end via
+    TE/CRLF), then the follow-up stream on the same connection. The follow-up
+    response is shown — the smuggled prefix is reflected here.
     """
     result: dict = {"requests": [], "error": None, "tls": True, "smuggle": True}
     rounds = max(1, min(int(rounds), 100))
     delay = max(0, min(int(delay_ms), 500)) / 1000.0
 
-    # Smuggle isteğinin gönderilen gösterimi (her turda aynı; bir kez göster).
+    # Sent view of the smuggle request (same every round; show it once).
     ps, rs = _h2_headers(smuggle["method"], smuggle["path"],
                          smuggle.get("authority") or host, smuggle["headers"], True)
     smuggle_sent = _render_h2_from_parts(ps, rs, smuggle["body"] or b"")
     result["requests"].append({
         "index": 0,
-        "label": "smuggle (h2 malformed — her turda takip ile AYNI bağlantıda, ilk stream)",
+        "label": "smuggle (h2 malformed — first stream on the SAME connection as the follow-up each round)",
         "sent_size": len(smuggle_sent),
         "sent_base64": base64.b64encode(smuggle_sent).decode("ascii"),
         "response_base64": "",
@@ -1005,7 +1009,7 @@ def h2_smuggle_followup(
             result["tls_version"] = rr["tls_version"]
         if rr.get("conn_error"):
             result["requests"].append({
-                "index": idx, "label": f"takip #{rnd + 1}",
+                "index": idx, "label": f"follow-up #{rnd + 1}",
                 "sent_size": 0, "sent_base64": "", "response_base64": "",
                 "response_size": 0, "duration_ms": 0.0,
                 "send_error": None, "recv_error": rr["conn_error"],
@@ -1013,7 +1017,7 @@ def h2_smuggle_followup(
         else:
             e = dict(rr["followup"])
             e["index"] = idx
-            e["label"] = f"takip #{rnd + 1}"
+            e["label"] = f"follow-up #{rnd + 1}"
             result["requests"].append(e)
         idx += 1
 

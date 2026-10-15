@@ -1,10 +1,10 @@
 "use strict";
-/* Blackwall i18n — TR (varsayılan) / EN.
-   Statik metinler data-i18n* öznitelikleriyle, dinamik metinler t() ile. */
+/* Blackwall i18n — TR (default) / EN.
+   Static text via data-i18n* attributes, dynamic text via t(). */
 
 const I18N = {
   tr: {
-    // Üst bar
+    // Top bar
     "search.ph": "url / host / method filtrele…",
     "topbar.autorefresh": "otomatik yenile",
     "topbar.openBrowser": "🌐 Tarayıcı Aç",
@@ -12,13 +12,13 @@ const I18N = {
     "topbar.refresh": "Yenile",
     "topbar.clear": "Temizle",
     "boot.sub": "// BREACH PROTOCOL",
-    // History başlıkları
+    // History headers
     "th.time": "Zaman", "th.source": "Kaynak", "th.method": "Method",
     "th.host": "Host", "th.path": "Path", "th.status": "Durum",
     "th.size": "Boyut", "th.ms": "ms",
-    // Sekmeler
+    // Tabs
     "tab.req": "İstek", "tab.resp": "Yanıt",
-    // İstek/Yanıt
+    // Request/Response
     "req.toRepeater": "→ Repeater (yeni sekme)",
     "req.empty": "Soldan bir akış seçin.",
     // Repeater
@@ -150,7 +150,7 @@ const I18N = {
     "jwt.out": "Çıkan token",
     "jwt.copy": "kopyala",
 
-    // ---- Dinamik (app.js) ----
+    // ---- Dynamic (app.js) ----
     "js.errPrefix": "HATA: ",
     "js.errorWord": "hata",
     "js.sending": "gönderiliyor…",
@@ -505,7 +505,7 @@ function setLang(lang) {
   if (lang !== "tr" && lang !== "en") return;
   LANG = lang;
   try { localStorage.setItem("bw-lang", lang); } catch {}
-  // Backend hata mesajı çevirisi için cookie (endpoint'ler değişmeden okur).
+  // Cookie for backend error-message translation (endpoints read it unchanged).
   try { document.cookie = "lang=" + lang + "; path=/; max-age=31536000; SameSite=Lax"; } catch {}
   document.documentElement.lang = lang;
   applyStaticI18n();
@@ -516,14 +516,14 @@ function setLang(lang) {
   }
 }
 
-// Dışarıya aç
+// Expose
 window.t = t;
 window.I18N = I18N;
 window.getLang = getLang;
 window.setLang = setLang;
 window.applyStaticI18n = applyStaticI18n;
 
-// İlk uygulama (bu script app.js'ten önce, gövdedeki elemanlardan sonra yüklenir).
+// Initial apply (this script loads before app.js, after the body elements).
 document.documentElement.lang = LANG;
 try { document.cookie = "lang=" + LANG + "; path=/; max-age=31536000; SameSite=Lax"; } catch {}
 applyStaticI18n();

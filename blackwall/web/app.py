@@ -1,6 +1,6 @@
-"""FastAPI uygulaması: history API'si, akış detayı ve Repeater.
+"""FastAPI application: history API, flow detail, and Repeater.
 
-Çalıştırma:
+Run:
     uvicorn blackwall.web.app:app --reload
 """
 from __future__ import annotations
@@ -23,11 +23,11 @@ from pydantic import BaseModel, Field
 
 from blackwall import browser, db, httpsend, oast, raw, tools
 
-# Intruder sınırları
-MAX_REQUESTS = 10_000      # bir saldırıda üretilecek toplam istek üst sınırı
+# Intruder limits
+MAX_REQUESTS = 10_000      # max total requests generated per attack
 MAX_CONCURRENCY = 100
-MAX_STORED_BODY = 200_000  # saklanan yanıt gövdesi (karakter)
-MAX_JOBS = 20              # bellekte tutulan iş sayısı
+MAX_STORED_BODY = 200_000  # stored response body (characters)
+MAX_JOBS = 20              # number of jobs kept in memory
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -41,14 +41,14 @@ def _startup() -> None:
 
 @app.on_event("shutdown")
 def _shutdown() -> None:
-    # Uygulama kapanınca "Tarayıcı Aç" ile başlatılan tarayıcıları da kapat.
+    # On app shutdown, also close browsers launched via "Open Browser".
     browser.close_all()
 
 
 # ---------------------------------------------------------------------------
-# Hata mesajı i18n: endpoint'ler Türkçe `detail` yükseltir; istemci cookie'si
-# (lang=en) varsa yanıt İngilizceye çevrilir. Endpoint'lere dokunulmaz,
-# `data.detail` string kalır (frontend sözleşmesi bozulmaz).
+# Error-message i18n: endpoints raise a Turkish `detail`; if the client cookie
+# (lang=en) is set, the response is translated to English. Endpoints are not
+# touched and `data.detail` stays a string (the frontend contract is preserved).
 # ---------------------------------------------------------------------------
 _ERR_EN = {
     "Akış bulunamadı": "Flow not found",
@@ -69,7 +69,7 @@ _ERR_EN = {
     "mode crlf | lf | escape olmalı": "mode must be crlf | lf | escape",
     "boş istek gönderilemez": "cannot send an empty request",
 }
-# Dinamik kuyruklu mesajlar: Türkçe önek -> İngilizce önek (kuyruk aynen kalır).
+# Messages with a dynamic tail: Turkish prefix -> English prefix (tail kept as-is).
 _ERR_EN_PREFIX = {
     "Tarayıcı başlatılamadı: ": "Failed to launch browser: ",
     "JWT çözülemedi: ": "JWT decode failed: ",
@@ -91,7 +91,7 @@ def _translate_detail(detail: str) -> str:
     for rx, repl in _ERR_RE:
         if rx.match(detail):
             return rx.sub(repl, detail)
-    return detail  # bilinmeyen/derin mesajlar olduğu gibi kalır
+    return detail  # unknown/deep messages are left as-is
 
 
 @app.exception_handler(HTTPException)
@@ -107,7 +107,7 @@ async def _localized_http_exception(request: Request, exc: HTTPException):
 
 
 # ---------------------------------------------------------------------------
-# Tarayıcı (Burp "Open Browser" karşılığı)
+# Browser (equivalent of Burp's "Open Browser")
 # ---------------------------------------------------------------------------
 @app.post("/api/browser/open")
 def api_browser_open():
@@ -164,11 +164,11 @@ def api_clear():
 class RepeaterRequest(BaseModel):
     method: str = "GET"
     url: str
-    # Başlıklar [[isim, değer], ...] biçiminde; aynı başlık birden çok kez olabilir.
+    # Headers as [[name, value], ...]; the same header may appear multiple times.
     headers: list[tuple[str, str]] = Field(default_factory=list)
     body_text: Optional[str] = None
     body_base64: Optional[str] = None
-    # Sunucu sertifika doğrulaması (pentest hedeflerinde genelde kapalı istenir).
+    # Server certificate verification (usually disabled for pentest targets).
     verify_tls: bool = False
     follow_redirects: bool = False
     timeout: float = 30.0
@@ -196,7 +196,7 @@ def api_repeater_send(reqdata: RepeaterRequest):
             follow_redirects=reqdata.follow_redirects,
             timeout=reqdata.timeout,
         ) as client:
-            # Intruder ile BİREBİR aynı gönderim yolu (CL gövdeye göre yeniden hesaplanır).
+            # Exactly the same send path as Intruder (CL recomputed from the body).
             req, sent_raw = httpsend.build_request(
                 client,
                 method=reqdata.method,
@@ -267,7 +267,7 @@ class JwtSignRequest(BaseModel):
     payload: object
     alg: str = "HS256"           # "none" | "HS256"
     secret: str = ""
-    header: Optional[dict] = None  # opsiyonel ek header alanları
+    header: Optional[dict] = None  # optional extra header fields
 
 
 @app.post("/api/jwt/decode")
@@ -294,22 +294,22 @@ def api_jwt_sign(reqdata: JwtSignRequest):
 # ---------------------------------------------------------------------------
 # Intruder
 # ---------------------------------------------------------------------------
-# İş durumları bellekte tutulur (kalıcılık gerekmez; Faz 1 kapsamı).
+# Job state is kept in memory (no persistence needed).
 INTRUDER_JOBS: dict[str, dict] = {}
 
 
 class IntruderStart(BaseModel):
     request_text: str
     scheme: str = "https"
-    host: str = ""                        # bağlantı hedefi (kaynak flow'dan); boşsa Host başlığından
-    port: int = 0                         # 0 → şemaya göre varsayılan
+    host: str = ""                        # connection target (from source flow); else from Host header
+    port: int = 0                         # 0 -> default per scheme
     attack: str = "sniper"               # sniper | pitchfork | cluster
     payload_sets: list[list[str]] = Field(default_factory=list)
     concurrency: int = 10
     timeout: float = 15.0
     verify_tls: bool = False
     follow_redirects: bool = False
-    grep: list[str] = Field(default_factory=list)   # yanıt gövdesinde aranacak metinler
+    grep: list[str] = Field(default_factory=list)   # strings to search in the response body
 
 
 def _prune_jobs() -> None:
@@ -348,10 +348,10 @@ async def _run_intruder(job_id: str) -> None:
                     "grep": [False] * len(grep_terms),
                 }
                 started = time.perf_counter()
-                sent_raw = concrete  # parse başarısız olursa en azından ham metni sakla
+                sent_raw = concrete  # if parsing fails, at least keep the raw text
                 try:
-                    # Hedef Host: satırından DEĞİL, kaynak flow'dan (şema+host+port) çözülür;
-                    # path request satırından gelir. Sonra Repeater ile aynı gönderim yolu.
+                    # Target is resolved from the source flow (scheme+host+port), NOT the
+                    # Host: line; path comes from the request line. Then the same send path as Repeater.
                     method, path, headers, body = tools.parse_request(concrete)
                     url = tools.resolve_url(
                         job["scheme"],
@@ -365,7 +365,7 @@ async def _run_intruder(job_id: str) -> None:
                     resp = await client.send(req, follow_redirects=job["follow_redirects"])
                     dur = (time.perf_counter() - started) * 1000.0
                     text = resp.text
-                    # grep-match: yanıt GÖVDESİNDE (kısaltmadan önce) her metni ara
+                    # grep-match: search each string in the response BODY (before truncation)
                     if grep_terms:
                         result["grep"] = [(t in text) for t in grep_terms]
                     truncated = len(text) > MAX_STORED_BODY
@@ -382,13 +382,13 @@ async def _run_intruder(job_id: str) -> None:
                     hdrs = "\n".join(f"{k}: {v}" for k, v in resp.headers.items())
                     job["responses"][index] = (
                         status_line + "\n" + hdrs + "\n\n" + text
-                        + ("\n\n[... kısaltıldı ...]" if truncated else "")
+                        + ("\n\n[... truncated ...]" if truncated else "")
                     )
                     job["requests"][index] = sent_raw
                 except Exception as exc:
                     result["error"] = f"{type(exc).__name__}: {exc}"
                     result["duration_ms"] = (time.perf_counter() - started) * 1000.0
-                    job["responses"][index] = f"HATA: {result['error']}"
+                    job["responses"][index] = f"ERROR: {result['error']}"
                     job["requests"][index] = sent_raw
                 finally:
                     job["results"].append(result)
@@ -476,7 +476,7 @@ def api_intruder_result(job_id: str, index: int):
         raise HTTPException(404, "İş bulunamadı")
     return {
         "request": job["requests"].get(index, ""),
-        "response": job["responses"].get(index, "(yanıt yok)"),
+        "response": job["responses"].get(index, "(no response)"),
     }
 
 
@@ -516,7 +516,7 @@ async def _oast_loop() -> None:
             OAST_STATE["error"] = None
         except oast.InteractshError as exc:
             OAST_STATE["error"] = str(exc)
-        except Exception as exc:  # döngü çökmesin
+        except Exception as exc:  # keep the loop alive
             OAST_STATE["error"] = f"{type(exc).__name__}: {exc}"
         await asyncio.sleep(OAST_STATE["interval"])
 
@@ -628,7 +628,7 @@ def api_oast_interaction(index: int):
 
 
 # ---------------------------------------------------------------------------
-# WebSocket (yakalama görüntüleme + enjeksiyon kuyruğu)
+# WebSocket (capture viewing + injection queue)
 # ---------------------------------------------------------------------------
 class WsInjectRequest(BaseModel):
     flow_id: str
@@ -686,7 +686,7 @@ def api_ws_inject(reqdata: WsInjectRequest):
         )
     finally:
         conn.close()
-    # addon kuyruğu ~0.4s içinde işler; durum ayrı endpoint'ten yoklanır.
+    # the addon processes the queue within ~0.4s; status is polled from a separate endpoint.
     return {"inject_id": inject_id, "status": "pending"}
 
 
@@ -703,19 +703,19 @@ def api_ws_inject_status(inject_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Raw — ham TCP/TLS istek göndericisi (smuggling)
+# Raw — raw TCP/TLS request sender (smuggling)
 # ---------------------------------------------------------------------------
 class RawSendRequest(BaseModel):
     host: str
     port: int = 80
     tls: bool = False
-    http_version: str = "1.1"        # 1.1 (ham socket) | 2 (h2)
-    h2_malformed: bool = False       # h2: giden doğrulama/normalizasyon kapalı (smuggling)
-    smuggle: bool = False            # h2 smuggle + takip isteği modu
+    http_version: str = "1.1"        # 1.1 (raw socket) | 2 (h2)
+    h2_malformed: bool = False       # h2: outbound validation/normalization off (smuggling)
+    smuggle: bool = False            # h2 smuggle + follow-up request mode
     rounds: int = 1                  # smuggle modunda otomatik tekrar
-    mode: str = "crlf"               # crlf | lf | escape (yalnızca 1.1)
+    mode: str = "crlf"               # crlf | lf | escape (1.1 only)
     request1: str = ""
-    request2: Optional[str] = None   # aynı socket/bağlantıda ikinci istek
+    request2: Optional[str] = None   # second request on the same socket/connection
     timeout: float = 10.0
     read_idle: float = 1.0
     delay_ms: int = 0
@@ -743,7 +743,7 @@ async def api_raw_send(reqdata: RawSendRequest):
                 "body": body, "authority": authority}
 
     if reqdata.smuggle:
-        # h2 smuggle (İstek 1, malformed) + takip (İstek 2, normal) — ayrı bağlantılar.
+        # h2 smuggle (Request 1, malformed) + follow-up (Request 2, normal).
         if not (reqdata.request2 and reqdata.request2.strip()):
             raise HTTPException(400, "smuggle modu için İstek 2 (takip) gerekli")
         result = await asyncio.to_thread(
@@ -757,7 +757,7 @@ async def api_raw_send(reqdata: RawSendRequest):
         return result
 
     if reqdata.http_version == "2":
-        # HTTP/2: ham istek metni parse edilip geçerli h2 isteğine çevrilir.
+        # HTTP/2: the raw request text is parsed and turned into a valid h2 request.
         req_texts = [reqdata.request1]
         if reqdata.request2 and reqdata.request2.strip():
             req_texts.append(reqdata.request2)
@@ -779,7 +779,7 @@ async def api_raw_send(reqdata: RawSendRequest):
         )
         return result
 
-    # HTTP/1.1 ham socket (mevcut davranış + iki-istek pipeline).
+    # HTTP/1.1 raw socket (existing behavior + two-request pipeline).
     if reqdata.mode not in ("crlf", "lf", "escape"):
         raise HTTPException(400, "mode crlf | lf | escape olmalı")
     try:
@@ -804,7 +804,7 @@ async def api_raw_send(reqdata: RawSendRequest):
 
 
 # ---------------------------------------------------------------------------
-# Race — last-byte synchronization ile race condition saldırısı
+# Race — race-condition attack via last-byte synchronization
 # ---------------------------------------------------------------------------
 class RaceRequest(BaseModel):
     host: str
@@ -850,7 +850,7 @@ async def api_race_run(reqdata: RaceRequest):
         result["sent_request_hex"] = raw.hexdump(sent.encode("latin-1", "replace"))
         return result
 
-    # last-byte (HTTP/1.1): payload Repeater ile BİREBİR aynı httpx tel byte'ları.
+    # last-byte (HTTP/1.1): payload is the exact same httpx wire bytes as Repeater.
     scheme = "https" if reqdata.tls else "http"
     url = tools.resolve_url(scheme, host, port, path)
     with httpx.Client() as client:
@@ -873,7 +873,7 @@ async def api_race_run(reqdata: RaceRequest):
 
 
 def _render_h2_request(method, path, authority, headers, body: Optional[bytes]) -> str:
-    """HTTP/2 isteğini görüntü için okunur metne çevirir (pseudo-header'lar dahil)."""
+    """Render an HTTP/2 request as readable text for display (including pseudo-headers)."""
     forbidden = {"host", "connection", "keep-alive", "proxy-connection",
                  "transfer-encoding", "upgrade", "content-length"}
     lines = [f":method: {method}", f":path: {path}", ":scheme: https",

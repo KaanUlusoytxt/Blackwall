@@ -1,13 +1,13 @@
-"""Repeater ve Intruder için TEK ortak istek gönderim yolu.
+"""The SINGLE shared request-send path for Repeater and Intruder.
 
-Her iki araç da aynı (method, url, headers, body) girdisinden aynı httpx isteğini
-kurar; böylece gönderilen byte'lar birebir aynıdır. Intruder yalnızca payload'ı
-yerleştirip ham isteği parse eder, sonra bu modülü çağırır.
+Both tools build the same httpx request from the same (method, url, headers, body)
+input, so the bytes sent are identical. Intruder only substitutes the payload and
+parses the raw request, then calls this module.
 
-Kurallar (her iki araçta da aynı):
-  * Content-Length, payload yerleştikten sonra GÖVDENİN GERÇEK uzunluğuna göre
-    yeniden hesaplanır (gelen bayat Content-Length atılır).
-  * Diğer header'lar ve sırası korunur; Host httpx tarafından (yoksa) eklenir.
+Rules (identical for both tools):
+  * Content-Length is recomputed from the REAL body length after the payload is
+    substituted (any stale incoming Content-Length is dropped).
+  * Other headers and their order are preserved; Host is added by httpx if missing.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import httpx
 def recompute_headers(
     headers: list[tuple[str, str]], body: Optional[bytes]
 ) -> list[tuple[str, str]]:
-    """Bayat Content-Length'i atar, gövde doluysa gerçek uzunluğu ekler."""
+    """Drop stale Content-Length; add the real length when the body is non-empty."""
     out = [(k, v) for k, v in headers if k.lower() != "content-length"]
     if body:
         out.append(("Content-Length", str(len(body))))
@@ -27,16 +27,16 @@ def recompute_headers(
 
 
 def request_wire_bytes(req: httpx.Request) -> bytes:
-    """httpx isteğini TAM tel (wire) byte dizisi olarak üretir.
+    """Produce the FULL wire byte sequence for an httpx request.
 
-    httpcore'un HTTP/1.1 üzerinde gerçekte gönderdiği biçim: request line,
-    `req.headers.raw` sırasıyla başlıklar, boş satır, gövde. Böylece Race ham
-    sokete bu byte'ları yazdığında Repeater'ın (httpx) gönderdiğiyle birebir aynı olur.
+    The exact form httpcore sends over HTTP/1.1: request line, headers in
+    `req.headers.raw` order, blank line, body. So when Race writes these bytes to
+    a raw socket they are byte-identical to what Repeater (httpx) sends.
     """
     target = req.url.raw_path  # bytes: path?query (origin-form)
     out = bytearray()
     out += req.method.encode("ascii") + b" " + target + b" HTTP/1.1\r\n"
-    # httpcore tel üzerinde Host başlığını en başa alır; aynı sırayı üret.
+    # httpcore puts the Host header first on the wire; reproduce the same order.
     raw_headers = list(req.headers.raw)
     host = [(k, v) for k, v in raw_headers if k.lower() == b"host"]
     rest = [(k, v) for k, v in raw_headers if k.lower() != b"host"]
@@ -48,7 +48,7 @@ def request_wire_bytes(req: httpx.Request) -> bytes:
 
 
 def render_sent(req: httpx.Request) -> str:
-    """httpx'in göndereceği isteği ham metin olarak üretir (hata ayıklama/görüntü)."""
+    """Render the request httpx will send as raw text (for debugging/display)."""
     wire = request_wire_bytes(req)
     try:
         return wire.decode("utf-8")
@@ -64,10 +64,10 @@ def build_request(
     headers: list[tuple[str, str]],
     body: Optional[bytes],
 ) -> tuple[httpx.Request, str]:
-    """Ortak kurulum: CL yeniden hesapla, httpx Request kur, gönderilecek ham metni üret.
+    """Shared setup: recompute CL, build the httpx Request, render the raw text to send.
 
-    (request, sent_raw) döndürür. Gönderme (sync/async) çağırana aittir ama
-    hazırlanan Request her iki araçta da birebir aynıdır.
+    Returns (request, sent_raw). Sending (sync/async) is up to the caller, but the
+    prepared Request is byte-identical for both tools.
     """
     final_headers = recompute_headers(headers, body)
     req = client.build_request(

@@ -31,7 +31,7 @@ It runs either as a **desktop app** (its own window via PyWebView) or **headless
 - **Raw sender** — pure TCP/TLS socket, your bytes untouched (no auto Content-Length/Transfer-Encoding, header order preserved). Supports **HTTP/1.1 and HTTP/2** (including malformed-frame and CRLF-in-header-value for **request smuggling**), request pipelining, and smuggle + follow-up over one connection.
 - **Race** — timing attacks via **last-byte synchronization (HTTP/1.1)** and **single-packet attack (HTTP/2)**; fires N requests in one salvo and highlights race-winner responses.
 - **One-click browser** — launches your installed Chromium/Chrome pre-configured with the proxy and a throwaway profile; the mitmproxy CA is loaded into that profile's isolated store so HTTPS "just works" (falls back to ignoring cert errors if `certutil`/CA is unavailable). Your normal browser profile is never touched.
-- **Desktop app** — runs in its own window (PyWebView); proxy + web server + window start together and shut down cleanly on close. Cyberpunk-themed UI.
+- **Desktop app** — runs in its own window (PyWebView); proxy + web server + window start together and shut down cleanly on close. Dark red/black security-themed UI (TR/EN interface).
 
 ## Requirements
 
@@ -44,7 +44,7 @@ It runs either as a **desktop app** (its own window via PyWebView) or **headless
 Clone the repo, create a virtual environment, and install the dependencies — nothing is hard-coded to a specific machine or path:
 
 ```bash
-git clone https://github.com/<your-username>/blackwall.git
+git clone https://github.com/KaanUlusoytxt/blackwall.git
 cd blackwall
 
 python3 -m venv .venv
@@ -96,14 +96,32 @@ To decrypt HTTPS, the client must trust the mitmproxy CA.
 - **Easiest:** click **🌐 Open Browser** in the top bar — it launches a throwaway Chromium with the CA pre-loaded into an isolated store. No manual setup.
 - **Your own browser:** the CA is generated under `~/.mitmproxy/` the first time the proxy runs (or visit `http://mitm.it` while the proxy is active). Import `~/.mitmproxy/mitmproxy-ca-cert.pem` into your browser/OS trust store and set its proxy to `127.0.0.1:8080`.
 
-## MCP server (Claude Desktop & other MCP clients)
+## MCP server (use Blackwall from Claude / AI agents)
 
-Blackwall ships an optional [MCP](https://modelcontextprotocol.io/) server
-([`mcp_server.py`](mcp_server.py)) so assistants like **Claude Desktop** can drive
-its tools (`get_history`, `get_flow`, `send_request`, `run_intruder`, `decode`,
-`jwt_decode`, `jwt_sign`, `check_oast`) as tool calls. It talks to a running
-Blackwall over HTTP and gates outbound tools behind a `BLACKWALL_ALLOWED_HOSTS`
-allow-list. Setup and the Claude Desktop config are in **[MCP_README.md](MCP_README.md)**.
+Blackwall is also an [MCP](https://modelcontextprotocol.io/) (Model Context
+Protocol) server ([`mcp_server.py`](mcp_server.py)), so an AI assistant — **Claude
+Code**, **Claude Desktop**, or any MCP client — can drive Blackwall's tools as
+first-class tool calls and help you work a target end to end:
+
+| Tool | Purpose |
+|------|---------|
+| `get_history` / `get_flow` | Browse captured traffic and read a full request/response |
+| `send_request` | Replay/tamper a single request (Repeater) |
+| `run_intruder` | Fuzz a `§...§`-marked request with payload sets + grep |
+| `decode` / `jwt_decode` / `jwt_sign` | Encoding pipelines and JWT decode/forge |
+| `check_oast` | Read out-of-band (interactsh) interactions |
+
+The MCP server is a thin client over the running Blackwall HTTP API; it runs over
+**stdio** or **HTTP/SSE** (for the Claude Desktop "custom connector" URL form).
+
+**Security:** the two tools that actually send traffic (`send_request`,
+`run_intruder`) are gated by a `BLACKWALL_ALLOWED_HOSTS` allow-list. If it is unset
+or empty, every target is refused — this prevents accidentally attacking the wrong
+host. As with the UI, **only use it against systems you own or are explicitly
+authorized to test.**
+
+Full setup, transport options, and the Claude Desktop / Claude Code configuration
+are in **[MCP_README.md](MCP_README.md)**.
 
 ## Dependencies
 

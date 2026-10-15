@@ -3,7 +3,7 @@
 const $ = (sel) => document.querySelector(sel);
 const body = $("#flows-body");
 let selectedId = null;
-let current = null; // seçili akışın detayı
+let current = null; // detail of the selected flow
 
 // ---- History ----------------------------------------------------------
 async function loadFlows() {
@@ -48,7 +48,7 @@ function escapeHtml(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
-// ---- Detay -------------------------------------------------------------
+// ---- Detail ------------------------------------------------------------
 async function selectFlow(id) {
   selectedId = id;
   const res = await fetch("/api/flows/" + id);
@@ -56,7 +56,7 @@ async function selectFlow(id) {
   current = await res.json();
   renderDetail(current);
   for (const tr of body.querySelectorAll("tr")) tr.classList.remove("sel");
-  // seçili satırı işaretle
+  // mark the selected row
   for (const tr of body.querySelectorAll("tr")) {
     if (tr.firstElementChild && tr.firstElementChild.textContent == String(id)) tr.classList.add("sel");
   }
@@ -87,7 +87,7 @@ function renderDetail(f) {
   }
 }
 
-// ---- Repeater (sekmeli) ------------------------------------------------
+// ---- Repeater (tabbed) -------------------------------------------------
 const rep = { tabs: [], activeId: null, seq: 0 };
 
 function repFieldsFromDom() {
@@ -166,7 +166,7 @@ function renderRepTabs() {
   const bar = $("#rep-tabs");
   bar.innerHTML = "";
   for (const tab of rep.tabs) {
-    // Otomatik adlı (kullanıcı adlandırmamış) sekmeler dil değişince güncellensin.
+    // Auto-named (not user-renamed) tabs should update when the language changes.
     if (tab.auto) tab.name = t("js.tabName", { id: tab.id });
     const el = document.createElement("div");
     el.className = "rep-tab" + (tab.id === rep.activeId ? " active" : "");
@@ -187,7 +187,7 @@ function renderRepTabs() {
   bar.appendChild(add);
 }
 
-// Bir History/akış kaydından yeni sekme için başlangıç alanları.
+// Initial fields for a new tab from a History/flow record.
 function repInitFromFlow(f) {
   let name = t("js.requestWord");
   try { name = f.method + " " + new URL(f.url).pathname.slice(0, 18); } catch { name = f.method + " " + (f.path || "").slice(0, 18); }
@@ -242,7 +242,7 @@ async function sendRepeater() {
       $("#rep-resp").textContent =
         statusLine + "\n" + headersToText(f.resp_headers) + "\n\n" + bodyToText(f.resp_body);
     }
-    repSaveActive();   // yanıtı aktif sekmede sakla
+    repSaveActive();   // store the response in the active tab
     loadFlows();
   } finally {
     btn.disabled = false;
@@ -257,7 +257,7 @@ $("#req-to-repeater").onclick = () => {
   if (t2) t2.click();
 };
 
-// ---- Sekmeler & olaylar -----------------------------------------------
+// ---- Tabs & events -----------------------------------------------------
 for (const tab of document.querySelectorAll(".tab")) {
   tab.onclick = () => {
     document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
@@ -464,15 +464,15 @@ function rawFromFlow(f) {
   return line + "\n" + hdr + "\n\n" + body;
 }
 
-// Hedefi flow'un yapısal alanlarından çıkarır (Repeater ile aynı mantık: Host
-// başlığına değil, flow'un şema/host/port'una dayanır).
+// Derive the target from the flow's structural fields (same logic as Repeater:
+// based on the flow's scheme/host/port, not the Host header).
 function flowTargetUrl(f) {
   const defPort = (f.scheme === "https" && f.port === 443) || (f.scheme === "http" && f.port === 80);
   const netloc = defPort ? f.host : `${f.host}:${f.port}`;
   return `${f.scheme}://${netloc}`;
 }
 
-// Hedef metnini {scheme, host, port}'a ayırır; şema/path/boşluk olsa bile toparlar.
+// Parse the target text into {scheme, host, port}; tolerates scheme/path/whitespace.
 function parseTarget(t) {
   t = (t || "").trim();
   try {
@@ -510,7 +510,7 @@ function rebuildPayloadEditors() {
   const container = $("#intr-payloads");
   const n = neededEditors();
   const sniper = currentAttack() === "sniper";
-  // mevcut değerleri sakla
+  // keep the current values
   container.querySelectorAll("textarea").forEach((ta) => { psetCache[+ta.dataset.i] = ta.value; });
   container.innerHTML = "";
   if (n === 0) {
@@ -596,7 +596,7 @@ function updateEstimate() {
 $("#intr-load").onclick = () => {
   if (!current) { alert(t("js.selectFlowFirst")); return; }
   $("#intr-req").value = rawFromFlow(current);
-  // Hedefi (şema+host+port) flow'dan otomatik al — elle Host/https gerekmez.
+  // Take the target (scheme+host+port) from the flow automatically — no manual Host/https needed.
   $("#intr-target").value = flowTargetUrl(current);
   rebuildPayloadEditors();
 };
@@ -683,7 +683,7 @@ $("#intr-f-err").onchange = renderIntrTable;
 
 function grepLabel(t2) { return t2.length > 12 ? t2.slice(0, 12) + "…" : t2; }
 
-// grep terimlerine göre dinamik sütun başlıkları + filtre açılırları kurar.
+// Build dynamic column headers + filter dropdowns from the grep terms.
 function ensureGrepUI(terms) {
   const same = terms.length === intr.grepTerms.length && terms.every((t2, i) => t2 === intr.grepTerms[i]);
   if (same) return;
@@ -736,7 +736,7 @@ function passFilter(r) {
   const mx = parseInt($("#intr-f-max").value, 10);
   if (!Number.isNaN(mn) && (r.length == null || r.length < mn)) return false;
   if (!Number.isNaN(mx) && (r.length == null || r.length > mx)) return false;
-  // grep sütun filtreleri
+  // grep column filters
   for (const gi in intr.grepFilter) {
     const mode = intr.grepFilter[gi];
     if (mode === "all") continue;
@@ -833,7 +833,7 @@ function renderOastUrls(urls) {
 function renderOastTable(interactions) {
   const tbody = $("#oast-tbody");
   tbody.innerHTML = "";
-  // en yeni üstte
+  // newest on top
   for (const it of [...interactions].reverse()) {
     const tr = document.createElement("tr");
     if (it.index === oast.selIdx) tr.classList.add("sel");
@@ -1017,7 +1017,7 @@ function renderRawResult(data) {
     const pre = document.createElement("pre");
     pre.textContent = renderBytes(r.response_base64);
     const sent = document.createElement("details");
-    sent.open = true;   // gönderilen isteği görünür göster (okunur; hex için "hex dump" kutusu)
+    sent.open = true;   // show the sent request visibly (readable; use the "hex dump" box for hex)
     sent.innerHTML = `<summary>${escapeHtml(t("js.rawSentSummary", { size: r.sent_size }))}</summary>`;
     const spre = document.createElement("pre");
     spre.className = "sent";
@@ -1034,7 +1034,7 @@ $("#raw-httpver").onchange = () => {
   const h2 = $("#raw-httpver").value === "2";
   if (h2) $("#raw-tls").checked = true;      // h2 ALPN → TLS zorunlu
   $("#raw-tls").disabled = h2;
-  $("#raw-mode").disabled = h2;              // h2'de istek parse edilir, satır sonu modu kullanılmaz
+  $("#raw-mode").disabled = h2;              // in h2 the request is parsed; line-ending mode is unused
   $("#raw-malformed-wrap").style.display = h2 ? "" : "none";
   $("#raw-smuggle-wrap").style.display = h2 ? "" : "none";
   $("#raw-rounds-wrap").style.display = (h2 && $("#raw-smuggle").checked) ? "" : "none";
@@ -1057,8 +1057,8 @@ rawHint();
 let lastRaceData = null;
 const raceSel = { idx: null };
 
-// Seçili History/Repeater isteğini yükle: tüm header'lar + body birebir,
-// request line HTTP/1.1; hedef host/port/şema flow'dan (Host satırına güvenme).
+// Load the selected History/Repeater request: all headers + body verbatim,
+// request line HTTP/1.1; target host/port/scheme from the flow (do not trust the Host line).
 $("#race-load").onclick = () => {
   if (!current) { alert(t("js.selectFlowFirst")); return; }
   const line = `${current.method} ${current.path} HTTP/1.1`;
@@ -1269,7 +1269,7 @@ async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    // Güvenli bağlam değilse fallback
+    // Fallback when not in a secure context
     const ta = document.createElement("textarea");
     ta.value = text; document.body.appendChild(ta); ta.select();
     try { document.execCommand("copy"); } catch {}
@@ -1277,7 +1277,7 @@ async function copyText(text) {
   }
 }
 
-// ---- Dil değişimi: görünür dinamik parçaları yeniden render et ---------
+// ---- Language switch: re-render the visible dynamic parts ---------------
 window.onLangChange = () => {
   rawHint();
   renderRepTabs();
@@ -1296,8 +1296,8 @@ window.onLangChange = () => {
 setInterval(() => { if ($("#autorefresh").checked) loadFlows(); }, 2000);
 loadFlows();
 
-// Açılışta aktif OAST oturumu varsa yükle ve pollingi sürdür
+// On load, if there is an active OAST session, load it and resume polling
 oastStatus().then(() => { if ($("#oast-stop").disabled === false) startOastPolling(); });
 
-// Repeater: açılışta bir boş sekme
+// Repeater: one empty tab on load
 repNewTab(null);

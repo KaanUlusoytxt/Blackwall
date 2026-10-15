@@ -1,14 +1,15 @@
-"""Önceden proxy'ye ayarlı, kendi geçici profilinde bir Chromium/Chrome başlatır.
+"""Launch a Chromium/Chrome pre-configured with the proxy, in its own throwaway profile.
 
-Burp'ün "Open Browser" özelliğinin karşılığı:
-  * `--proxy-server=127.0.0.1:8080` ile tüm trafik Blackwall proxy'sinden geçer.
-  * `--user-data-dir=<geçici>` ile kullanıcının normal tarayıcı profiline dokunulmaz.
-  * mitmproxy CA sertifikası bu geçici profile (izole NSS DB) yüklenir; böylece
-    kullanıcı hiçbir ayar yapmadan HTTPS sitelerini gezebilir ve trafik History'ye
-    düşer. certutil ya da CA yoksa `--ignore-certificate-errors` fallback'ine düşülür.
+Equivalent to Burp's "Open Browser" feature:
+  * `--proxy-server=127.0.0.1:8080` routes all traffic through the Blackwall proxy.
+  * `--user-data-dir=<temp>` leaves the user's normal browser profile untouched.
+  * The mitmproxy CA certificate is loaded into this throwaway profile (an isolated
+    NSS DB), so the user can browse HTTPS sites with no setup and the traffic shows
+    up in History. If certutil or the CA is missing, it falls back to
+    `--ignore-certificate-errors`.
 
-Başlatılan süreçler kaydedilir; `close_all()` (uygulama kapanışında) hepsini
-kapatır ve geçici profilleri siler.
+Launched processes are tracked; `close_all()` (on app shutdown) closes them all
+and deletes the temporary profiles.
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-# Aranacak tarayıcı ikilileri (Chromium tabanlı). İlk bulunan kullanılır.
+# Browser binaries to look for (Chromium-based). The first one found is used.
 _CANDIDATES = [
     "chromium",
     "chromium-browser",
@@ -43,11 +44,11 @@ _lock = threading.Lock()
 
 
 class BrowserNotFound(Exception):
-    """Sistemde Chromium/Chrome bulunamadı."""
+    """No Chromium/Chrome found on the system."""
 
 
 def find_browser() -> str | None:
-    """PATH'te ilk bulunan Chromium tabanlı tarayıcının yolunu döndür."""
+    """Return the path of the first Chromium-based browser found on PATH."""
     for name in _CANDIDATES:
         path = shutil.which(name)
         if path:
@@ -56,17 +57,17 @@ def find_browser() -> str | None:
 
 
 def _mitm_ca() -> Path | None:
-    """mitmproxy'nin PEM CA sertifikasını bul (proxy bir kez çalışınca oluşur)."""
+    """Find mitmproxy's PEM CA certificate (created once the proxy has run)."""
     ca = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
     return ca if ca.exists() else None
 
 
 def _install_ca(profile_dir: Path, ca_path: Path | None) -> bool:
-    """CA'yı profile ait izole NSS DB'sine yükle.
+    """Install the CA into the profile's isolated NSS DB.
 
-    Chromium (Linux) sertifika deposunu `$HOME/.pki/nssdb`'den okur. Tarayıcıyı
-    HOME=profile_dir ile başlatacağımız için, DB'yi profile_dir/.pki/nssdb altına
-    kurarız — kullanıcının gerçek NSS deposuna dokunmayız.
+    Chromium (Linux) reads its certificate store from `$HOME/.pki/nssdb`. Since we
+    launch the browser with HOME=profile_dir, we install the DB under
+    profile_dir/.pki/nssdb — the user's real NSS store is never touched.
     """
     certutil = shutil.which("certutil")
     if not certutil or ca_path is None:
@@ -75,7 +76,7 @@ def _install_ca(profile_dir: Path, ca_path: Path | None) -> bool:
     nssdb.mkdir(parents=True, exist_ok=True)
     db = f"sql:{nssdb}"
     try:
-        # Boş parolalı yeni DB (zaten varsa -N hata verir, o yüzden yoksay).
+        # New DB with empty password (-N errors if it already exists, so ignore).
         subprocess.run(
             [certutil, "-N", "--empty-password", "-d", db],
             check=False, capture_output=True,
@@ -90,16 +91,16 @@ def _install_ca(profile_dir: Path, ca_path: Path | None) -> bool:
 
 
 def open_browser(proxy_host: str = "127.0.0.1", proxy_port: int = 8080) -> dict:
-    """Proxy'ye ayarlı, geçici profilli bir tarayıcı başlat.
+    """Launch a browser pre-configured with the proxy and a throwaway profile.
 
-    Döndürür: {browser, pid, cert_method, ca_found, profile}
-    Tarayıcı yoksa BrowserNotFound yükseltir.
+    Returns: {browser, pid, cert_method, ca_found, profile}
+    Raises BrowserNotFound if no browser is available.
     """
     binary = find_browser()
     if not binary:
         raise BrowserNotFound(
-            "Sistemde Chromium/Chrome bulunamadı. "
-            "Lütfen chromium ya da google-chrome kurun."
+            "No Chromium/Chrome found on the system. "
+            "Please install chromium or google-chrome."
         )
 
     profile_dir = Path(tempfile.mkdtemp(prefix="blackwall-browser-"))
@@ -112,7 +113,7 @@ def open_browser(proxy_host: str = "127.0.0.1", proxy_port: int = 8080) -> dict:
     args = [
         binary,
         f"--proxy-server={proxy_host}:{proxy_port}",
-        # loopback dahil her şey proxy'den geçsin (Burp davranışı; localhost da yakalanır).
+        # route everything through the proxy including loopback (Burp behavior; localhost captured too).
         "--proxy-bypass-list=<-loopback>",
         f"--user-data-dir={user_data}",
         "--no-first-run",
@@ -125,10 +126,10 @@ def open_browser(proxy_host: str = "127.0.0.1", proxy_port: int = 8080) -> dict:
 
     env = dict(os.environ)
     if cert_ok:
-        # NSS DB'si profile_dir/.pki/nssdb'de; HOME'u oraya yönlendir.
+        # The NSS DB is at profile_dir/.pki/nssdb; point HOME there.
         env["HOME"] = str(profile_dir)
     else:
-        # CA kurulamadı: sertifika hatalarını yoksay (trafik yine yakalanır).
+        # CA could not be installed: ignore certificate errors (traffic still captured).
         args += ["--ignore-certificate-errors", "--test-type"]
 
     args.append("about:blank")
@@ -154,7 +155,7 @@ def open_browser(proxy_host: str = "127.0.0.1", proxy_port: int = 8080) -> dict:
 
 
 def close_all() -> None:
-    """Başlatılan tüm tarayıcıları kapat ve geçici profilleri sil."""
+    """Close all launched browsers and delete the temporary profiles."""
     with _lock:
         procs = list(_procs)
         _procs.clear()

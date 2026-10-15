@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
-"""Blackwall MCP sunucusu.
+"""Blackwall MCP server.
 
-Claude Desktop gibi MCP istemcilerinin Blackwall'ın araçlarını tool-call olarak
-kullanmasını sağlar. Bu sunucu ÇALIŞAN bir Blackwall örneğinin HTTP API'sine
-(varsayılan http://127.0.0.1:8000) istek atarak çalışır; Blackwall'ın kendi
-kodunu değiştirmez.
+Lets MCP clients such as Claude Code / Claude Desktop use Blackwall's tools as
+tool calls. This server works by making requests to a RUNNING Blackwall instance's
+HTTP API (default http://127.0.0.1:8000); it does not modify Blackwall's own code.
 
-Çalıştırma (genelde MCP istemcisi başlatır):
+Run (usually started by the MCP client):
     .venv/bin/python mcp_server.py
 
-Ortam değişkenleri:
-    BLACKWALL_URL            Blackwall HTTP API kökü (varsayılan http://127.0.0.1:8000)
-    BLACKWALL_ALLOWED_HOSTS  send_request/run_intruder için izinli hedef host'lar
-                             (virgül/boşlukla ayrılmış). Boşsa her ikisi de reddedilir.
-                             "*.example.com" gibi joker desteklenir.
+Environment variables:
+    BLACKWALL_URL            Blackwall HTTP API root (default http://127.0.0.1:8000)
+    BLACKWALL_ALLOWED_HOSTS  allowed target hosts for send_request/run_intruder
+                             (comma/space separated). If empty, both are refused.
+                             Wildcards like "*.example.com" are supported.
 """
 from __future__ import annotations
 
@@ -31,7 +30,7 @@ mcp = MCPServer("blackwall")
 
 
 # ---------------------------------------------------------------------------
-# Yardımcılar
+# Helpers
 # ---------------------------------------------------------------------------
 def _allowed_hosts() -> list[str]:
     raw = os.environ.get("BLACKWALL_ALLOWED_HOSTS", "")
@@ -51,25 +50,23 @@ def _host_allowed(host: str) -> bool:
 
 
 def _require_allowed(host: str) -> None:
-    """İzin listesi boşsa ya da host listede değilse hata yükseltir."""
+    """Raise if the allow-list is empty or the host is not in it."""
     allowed = _allowed_hosts()
     if not allowed:
         raise ValueError(
-            "BLACKWALL_ALLOWED_HOSTS tanımlı değil — güvenlik için hiçbir hedefe "
-            "istek atılmıyor. İzinli host tanımla (ör. "
-            "BLACKWALL_ALLOWED_HOSTS=\"0a12.web-security-academy.net\"). "
-            "/ No allowed hosts configured; set BLACKWALL_ALLOWED_HOSTS first."
+            "BLACKWALL_ALLOWED_HOSTS is not set — for safety no target is "
+            "contacted. Set an allowed host first, e.g. "
+            "BLACKWALL_ALLOWED_HOSTS=\"0a12.web-security-academy.net\"."
         )
     if not _host_allowed(host):
         raise ValueError(
-            f"'{host}' izinli host listesinde değil. İzinliler: {', '.join(allowed)}. "
-            f"Kaza saldırısını önlemek için hedefi BLACKWALL_ALLOWED_HOSTS'a ekleyin. "
-            f"/ Host not in the allow-list."
+            f"'{host}' is not in the allow-list. Allowed: {', '.join(allowed)}. "
+            f"Add the target to BLACKWALL_ALLOWED_HOSTS to prevent accidental attacks."
         )
 
 
 def _parse_target(target: str) -> tuple[str, str, int]:
-    """'https://host:port' ya da 'host:port' → (scheme, host, port)."""
+    """'https://host:port' or 'host:port' -> (scheme, host, port)."""
     t = (target or "").strip()
     if "://" not in t:
         t = "http://" + t
@@ -88,7 +85,7 @@ def _host_from_request_text(request_text: str) -> str:
 
 
 def _client() -> httpx.Client:
-    # lang=en cookie → Blackwall'ın hata mesajları İngilizce döner (MCP istemcisi için).
+    # lang=en cookie -> Blackwall returns English error messages (for the MCP client).
     return httpx.Client(base_url=BASE_URL, timeout=HTTP_TIMEOUT, cookies={"lang": "en"})
 
 
@@ -109,25 +106,25 @@ def _check_blackwall_running() -> None:
             c.get("/api/flows", params={"limit": 1})
     except httpx.ConnectError:
         raise RuntimeError(
-            f"Blackwall API'ye ({BASE_URL}) ulaşılamıyor. Önce Blackwall'ı başlatın "
-            f"(python app.py ya da ./run.sh). / Blackwall is not running."
+            f"Cannot reach the Blackwall API at {BASE_URL}. Start Blackwall first "
+            f"(python app.py or ./run.sh)."
         )
 
 
 # ---------------------------------------------------------------------------
-# Tool'lar
+# Tools
 # ---------------------------------------------------------------------------
 @mcp.tool()
 def get_history(q: Optional[str] = None, limit: int = 50) -> list[dict]:
-    """Blackwall proxy geçmişindeki (History) yakalanmış HTTP isteklerini listeler.
+    """List captured HTTP requests from the Blackwall proxy history (History).
 
-    Hedefin hangi istekleri yaptığını, hangi endpoint'lerin/parametrelerin var
-    olduğunu keşfetmek için kullan. Sadece özet döner (gövde yok); tam istek/yanıt
-    için dönen bir id ile get_flow çağır.
+    Use it to discover what requests the target made and which endpoints/parameters
+    exist. Returns summaries only (no body); call get_flow with a returned id for the
+    full request/response.
 
     Args:
-        q: url / host / method içinde arama metni (opsiyonel).
-        limit: en fazla kaç satır (varsayılan 50).
+        q: search text within url / host / method (optional).
+        limit: maximum number of rows (default 50).
     """
     _check_blackwall_running()
     with _client() as c:
@@ -148,13 +145,13 @@ def get_history(q: Optional[str] = None, limit: int = 50) -> list[dict]:
 
 @mcp.tool()
 def get_flow(flow_id: int) -> dict:
-    """Bir History kaydının (id ile) TAM istek ve yanıtını döndürür.
+    """Return the FULL request and response of a history entry (by id).
 
-    İstek satırı + başlıklar + gövde ve yanıt satırı + başlıklar + gövde metin
-    olarak verilir. get_history ile bulduğun bir id'yi incelemek için kullan.
+    Provided as text: request line + headers + body, and response line + headers +
+    body. Use it to inspect an id you found with get_history.
 
     Args:
-        flow_id: get_history'den gelen akış id'si.
+        flow_id: the flow id from get_history.
     """
     _check_blackwall_running()
     with _client() as c:
@@ -192,19 +189,18 @@ def send_request(
     verify_tls: bool = False,
     follow_redirects: bool = False,
 ) -> dict:
-    """Tek bir HTTP isteği gönderir (Blackwall Repeater) ve yanıtı döndürür.
+    """Send a single HTTP request (Blackwall Repeater) and return the response.
 
-    Bir isteği elle değiştirip tekrar yollamak, bir hipotezi test etmek için kullan.
-    GÜVENLİK: Yalnızca BLACKWALL_ALLOWED_HOSTS içindeki host'lara gider; liste boşsa
-    reddedilir.
+    Use it to tamper with and resend a request, or to test a hypothesis.
+    SECURITY: only goes to hosts in BLACKWALL_ALLOWED_HOSTS; refused if the list is empty.
 
     Args:
-        url: tam hedef URL (https://host/path).
-        method: HTTP metodu (GET/POST/...).
-        headers: {"İsim": "değer", ...} başlık sözlüğü (opsiyonel).
-        body: istek gövdesi metni (opsiyonel).
-        verify_tls: TLS sertifikası doğrulansın mı (varsayılan False).
-        follow_redirects: yönlendirmeler izlensin mi (varsayılan False).
+        url: full target URL (https://host/path).
+        method: HTTP method (GET/POST/...).
+        headers: {"Name": "value", ...} header dict (optional).
+        body: request body text (optional).
+        verify_tls: whether to verify the TLS certificate (default False).
+        follow_redirects: whether to follow redirects (default False).
     """
     _check_blackwall_running()
     host = urlsplit(url).hostname or ""
@@ -246,23 +242,23 @@ def run_intruder(
     follow_redirects: bool = False,
     max_wait: float = 60.0,
 ) -> dict:
-    """Bir ham isteği payload'larla çoğaltıp gönderir (Blackwall Intruder) ve sonuç tablosunu döndürür.
+    """Replay a raw request with payloads (Blackwall Intruder) and return the result table.
 
-    Payload konumlarını ham istekte §...§ ile işaretle (ör. "user=§admin§").
-    Fuzzing, kimlik/parola denemeleri, numaralandırma için kullan. İş tamamlanana
-    (ya da max_wait'e) kadar bekler.
+    Mark payload positions in the raw request with §...§ (e.g. "user=§admin§").
+    Use it for fuzzing, credential/password attempts, and enumeration. Waits until the
+    job finishes (or max_wait).
 
     Args:
-        request_text: §...§ ile işaretli konumlar içeren ham HTTP isteği.
-        payload_sets: her konum için payload listesi; sniper'da tek liste yeter.
+        request_text: raw HTTP request containing §...§ marked positions.
+        payload_sets: payload list per position; for sniper a single list is enough.
         attack: "sniper" | "pitchfork" | "cluster".
-        target: hedef "https://host:port" (verilmezse istekteki Host başlığından, şema https).
-        grep: yanıt gövdesinde aranacak metinler; her biri sonuçta var/yok olarak işaretlenir.
-        concurrency: eşzamanlı istek sayısı (varsayılan 10).
-        timeout: istek başına timeout (s).
-        verify_tls: TLS doğrulaması.
-        follow_redirects: yönlendirme izleme.
-        max_wait: sonuçlar için en fazla bekleme (s).
+        target: target "https://host:port" (if omitted, taken from the Host header, scheme https).
+        grep: strings to search in the response body; each is flagged present/absent per result.
+        concurrency: number of concurrent requests (default 10).
+        timeout: per-request timeout (s).
+        verify_tls: TLS verification.
+        follow_redirects: whether to follow redirects.
+        max_wait: maximum wait for results (s).
     """
     import time as _time
 
@@ -325,22 +321,22 @@ def run_intruder(
         "total": data.get("total"),
         "done": data.get("done"),
         "grep_terms": grep_terms,
-        "note": None if state == "done" else f"state={state} (max_wait {max_wait}s dolmuş olabilir)",
+        "note": None if state == "done" else f"state={state} (max_wait {max_wait}s may have elapsed)",
         "results": results,
     }
 
 
 @mcp.tool()
 def decode(input: str, ops: list[str]) -> dict:
-    """Bir metni çok katmanlı encode/decode/hash işleminden geçirir (Blackwall Decoder).
+    """Run a text through a multi-layer encode/decode/hash pipeline (Blackwall Decoder).
 
-    ops sırayla uygulanır. Geçerli işlemler: base64-encode, base64-decode,
+    ops are applied in order. Valid ops: base64-encode, base64-decode,
     base64url-encode, base64url-decode, url-encode, url-decode, html-encode,
     html-decode, hex-encode, hex-decode, ascii-encode, ascii-decode, md5, sha1, sha256.
 
     Args:
-        input: girdi metni.
-        ops: uygulanacak işlemler listesi (sırayla).
+        input: input text.
+        ops: list of ops to apply (in order).
     """
     _check_blackwall_running()
     with _client() as c:
@@ -352,10 +348,10 @@ def decode(input: str, ops: list[str]) -> dict:
 
 @mcp.tool()
 def jwt_decode(token: str) -> dict:
-    """Bir JWT'yi imza doğrulamadan çözer: header + payload + alg + imza bilgisi.
+    """Decode a JWT without verifying the signature: header + payload + alg + signature info.
 
     Args:
-        token: xxxxx.yyyyy.zzzzz biçiminde JWT.
+        token: JWT in xxxxx.yyyyy.zzzzz form.
     """
     _check_blackwall_running()
     with _client() as c:
@@ -371,15 +367,15 @@ def jwt_sign(
     secret: str = "",
     header: Optional[dict] = None,
 ) -> dict:
-    """Bir JWT üretir/imzalar (Blackwall JWT). alg="none" ile imzasız, alg="HS256" ile secret ile imzalı.
+    """Create/sign a JWT (Blackwall JWT). alg="none" for unsigned, alg="HS256" to sign with a secret.
 
-    alg:none zafiyeti testleri ve bilinen secret ile token sahteleme için kullan.
+    Use it for alg:none vulnerability tests and forging tokens with a known secret.
 
     Args:
-        payload: JWT payload sözlüğü.
+        payload: JWT payload dict.
         alg: "none" | "HS256".
-        secret: HS256 için gizli anahtar.
-        header: eklenecek/üzerine yazılacak header alanları (opsiyonel).
+        secret: secret key for HS256.
+        header: header fields to add/override (optional).
     """
     _check_blackwall_running()
     with _client() as c:
@@ -390,11 +386,11 @@ def jwt_sign(
 
 @mcp.tool()
 def check_oast() -> dict:
-    """Çalışan OAST (interactsh) oturumunun durumunu ve yakalanan out-of-band etkileşimleri döndürür.
+    """Return the status of the running OAST (interactsh) session and captured out-of-band interactions.
 
-    SSRF / blind enjeksiyon / DNS exfil testlerinden sonra hedefin Blackwall'ın OAST
-    subdomain'ine DNS/HTTP isteği yapıp yapmadığını kontrol etmek için kullan.
-    (OAST oturumunu Blackwall arayüzünden başlatmış olman gerekir.)
+    Use it after SSRF / blind injection / DNS exfil tests to check whether the target
+    made a DNS/HTTP request to Blackwall's OAST subdomain.
+    (You must have started the OAST session from the Blackwall UI.)
     """
     _check_blackwall_running()
     with _client() as c:
@@ -409,19 +405,19 @@ def check_oast() -> dict:
         "interaction_count": s.get("count", 0),
         "interactions": s.get("interactions", []),
         "error": s.get("error"),
-        "hint": None if s.get("active") else "OAST oturumu aktif değil; Blackwall OAST sekmesinden 'Başlat' deyin.",
+        "hint": None if s.get("active") else "No active OAST session; start one from the Blackwall OAST tab.",
     }
 
 
 def _parse_args(argv: list[str]) -> dict:
-    """Taşıma seçimini argüman + ortam değişkeninden çözer.
+    """Resolve the transport selection from arguments + environment variables.
 
-    Öncelik: komut satırı argümanı > ortam değişkeni > varsayılan.
-      transport: stdio (varsayılan) | http | streamable-http | sse
-      --host / BLACKWALL_MCP_HOST  (varsayılan 127.0.0.1)
-      --port / BLACKWALL_MCP_PORT  (varsayılan 9000)
-      --path / BLACKWALL_MCP_PATH  (varsayılan /mcp)
-    Kısayol: `mcp_server.py http` ya da `mcp_server.py sse`.
+    Precedence: command-line argument > environment variable > default.
+      transport: stdio (default) | http | streamable-http | sse
+      --host / BLACKWALL_MCP_HOST  (default 127.0.0.1)
+      --port / BLACKWALL_MCP_PORT  (default 9000)
+      --path / BLACKWALL_MCP_PATH  (default /mcp)
+    Shortcut: `mcp_server.py http` or `mcp_server.py sse`.
     """
     import argparse
 
@@ -429,7 +425,7 @@ def _parse_args(argv: list[str]) -> dict:
     p.add_argument(
         "transport", nargs="?",
         default=os.environ.get("BLACKWALL_MCP_TRANSPORT", "stdio"),
-        help="stdio | http | streamable-http | sse (varsayılan: stdio)",
+        help="stdio | http | streamable-http | sse (default: stdio)",
     )
     p.add_argument("--transport", dest="transport_opt", default=None)
     p.add_argument("--host", default=os.environ.get("BLACKWALL_MCP_HOST", "127.0.0.1"))
@@ -437,7 +433,7 @@ def _parse_args(argv: list[str]) -> dict:
     p.add_argument("--path", default=os.environ.get("BLACKWALL_MCP_PATH", "/mcp"))
     ns = p.parse_args(argv)
     transport = (ns.transport_opt or ns.transport or "stdio").lower()
-    if transport == "http":           # kolaylık: http -> streamable-http
+    if transport == "http":           # convenience: http -> streamable-http
         transport = "streamable-http"
     return {"transport": transport, "host": ns.host, "port": ns.port, "path": ns.path}
 
@@ -449,11 +445,11 @@ def main(argv: Optional[list[str]] = None) -> None:
     transport = cfg["transport"]
 
     if transport == "stdio":
-        # Inspector ve Claude Desktop'ın komutla başlattığı klasik mod.
+        # Classic mode started by command (MCP Inspector and Claude Desktop).
         mcp.run(transport="stdio")
     elif transport == "streamable-http":
-        # Claude Desktop "özel bağdaştırıcı" (custom connector) için:
-        #   http://<host>:<port><path>  (varsayılan http://127.0.0.1:9000/mcp)
+        # For the Claude Desktop "custom connector":
+        #   http://<host>:<port><path>  (default http://127.0.0.1:9000/mcp)
         print(
             f"Blackwall MCP (streamable-http) → http://{cfg['host']}:{cfg['port']}{cfg['path']}",
             file=sys.stderr, flush=True,
@@ -467,7 +463,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         )
         mcp.run(transport="sse", host=cfg["host"], port=cfg["port"], sse_path=cfg["path"])
     else:
-        raise SystemExit(f"Bilinmeyen taşıma: {transport} (stdio | http | streamable-http | sse)")
+        raise SystemExit(f"Unknown transport: {transport} (stdio | http | streamable-http | sse)")
 
 
 if __name__ == "__main__":

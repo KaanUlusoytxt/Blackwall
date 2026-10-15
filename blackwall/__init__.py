@@ -1,3 +1,3 @@
-"""Blackwall — mitmproxy tabanlı web pentest aracı (Faz 1)."""
+"""Blackwall — a mitmproxy-powered web pentesting tool."""
 
 __version__ = "0.1.0"

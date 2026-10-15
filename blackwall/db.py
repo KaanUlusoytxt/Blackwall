@@ -1,7 +1,7 @@
-"""SQLite depolama katmanı.
+"""SQLite storage layer.
 
-Hem mitmproxy addon'u (yazıcı) hem de FastAPI uygulaması (okuyucu/yazıcı) aynı
-dosyayı açar. Süreçler arası eşzamanlı erişim için WAL modu kullanılır.
+Both the mitmproxy addon (writer) and the FastAPI app (reader/writer) open the
+same file. WAL mode is used for concurrent cross-process access.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-# DB yolu ortam değişkeni ile override edilebilir (addon ve web aynı değeri kullanmalı).
+# The DB path can be overridden via an env var (addon and web must use the same value).
 DB_PATH = Path(os.environ.get("BLACKWALL_DB", Path(__file__).resolve().parent.parent / "blackwall.db"))
 
 SCHEMA = """
@@ -27,19 +27,19 @@ CREATE TABLE IF NOT EXISTS flows (
     path          TEXT NOT NULL,          -- query dahil
     url           TEXT NOT NULL,
     http_version  TEXT,
-    req_headers   TEXT NOT NULL,          -- JSON: [[isim, değer], ...]
+    req_headers   TEXT NOT NULL,          -- JSON: [[name, value], ...]
     req_body      BLOB,
     status_code   INTEGER,
     reason        TEXT,
-    resp_headers  TEXT,                   -- JSON: [[isim, değer], ...]
+    resp_headers  TEXT,                   -- JSON: [[name, value], ...]
     resp_body     BLOB,
-    duration_ms   REAL,                   -- istek-yanıt süresi
+    duration_ms   REAL,                   -- request-response time
     error         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_flows_created_at ON flows (created_at);
 CREATE INDEX IF NOT EXISTS idx_flows_host ON flows (host);
 
--- WebSocket bağlantıları (her yükseltilmiş HTTP akışı için bir satır)
+-- WebSocket connections (one row per upgraded HTTP flow)
 CREATE TABLE IF NOT EXISTS ws_flows (
     flow_id      TEXT PRIMARY KEY,
     created_at   REAL NOT NULL,
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS ws_flows (
     close_reason TEXT
 );
 
--- WebSocket mesajları
+-- WebSocket messages
 CREATE TABLE IF NOT EXISTS ws_messages (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     flow_id    TEXT NOT NULL,
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS ws_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_ws_messages_flow ON ws_messages (flow_id, id);
 
--- Enjeksiyon kuyruğu: web süreci yazar, addon (mitmproxy süreci) işler
+-- Injection queue: the web process writes, the addon (mitmproxy process) consumes
 CREATE TABLE IF NOT EXISTS ws_inject (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     flow_id      TEXT NOT NULL,
@@ -82,7 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_ws_inject_status ON ws_inject (status, id);
 
 
 def connect() -> sqlite3.Connection:
-    """WAL modunda bir bağlantı açar. Her çağıran kendi bağlantısını yönetmeli."""
+    """Open a connection in WAL mode. Each caller manages its own connection."""
     conn = sqlite3.connect(str(DB_PATH), timeout=15, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
@@ -162,7 +162,7 @@ def list_flows(
     offset: int = 0,
     q: Optional[str] = None,
 ) -> list[dict]:
-    """History tablosu için özet satırlar (gövdeler hariç)."""
+    """Summary rows for the History table (bodies excluded)."""
     sql = [
         "SELECT id, created_at, source, method, scheme, host, port, path, url,",
         "       status_code, reason, duration_ms, error,",
@@ -190,7 +190,7 @@ def _row_to_detail(row: sqlite3.Row) -> dict:
 
 
 def _decode_body(body: Optional[bytes]) -> dict:
-    """Gövdeyi UI için güvenli şekilde döndürür: metin ise text, değilse base64."""
+    """Return the body safely for the UI: text if decodable, otherwise base64."""
     import base64
 
     if body is None:
@@ -312,7 +312,7 @@ def ws_list_messages(conn: sqlite3.Connection, flow_id: str, after_id: int = 0) 
     return out
 
 
-# -- Enjeksiyon kuyruğu -----------------------------------------------------
+# -- Injection queue --------------------------------------------------------
 def ws_enqueue_inject(
     conn: sqlite3.Connection,
     *,

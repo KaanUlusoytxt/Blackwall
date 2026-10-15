@@ -1,32 +1,32 @@
 /* ============================================================
-   BLACKWALL // BREACH PROTOCOL — Cyberpunk 2077 görsel kimliği
-   Sadece görünüm. Tüm id / class / DOM / davranış korunur.
-   Efektler çerçeve/başlık/sekme/düğme/boot'ta yoğunlaşır;
-   çalışma alanları (tablolar, editörler, hex dump) TEMİZ kalır.
+   Dark red/black security theme — visual identity only.
+   Appearance only. All id / class / DOM / behavior preserved.
+   Effects concentrate on frame/header/tabs/buttons/boot;
+   work areas (tables, editors, hex dump) stay CLEAN.
    ============================================================ */
 * { box-sizing: border-box; }
 :root {
-  /* zemin / panel */
-  --bg: #0a0a0a;            /* derin siyah */
-  --bg-deep: #050505;       /* editör zemini (en yüksek kontrast) */
-  --panel: #130d0d;         /* chrome panelleri (hafif kırmızı tint) */
-  --panel-2: #1a0e0e;       /* üst bar / sekme şeridi */
-  --border: #2a1d1d;        /* içerik ayıraçları — DÜŞÜK profil, kırmızı-üstüne-kırmızı olmasın */
+  /* background / panel */
+  --bg: #0a0a0a;            /* deep black */
+  --bg-deep: #050505;       /* editor background (highest contrast) */
+  --panel: #130d0d;         /* chrome panels (slight red tint) */
+  --panel-2: #1a0e0e;       /* top bar / tab strip */
+  --border: #2a1d1d;        /* content separators — LOW profile, avoid red-on-red */
 
-  /* metin */
-  --fg: #e7d9d9;            /* soluk gri-kırmızı ana metin */
+  /* text */
+  --fg: #e7d9d9;            /* pale gray-red primary text */
   --fg-strong: #f6ecec;
-  --muted: #8f7a7a;         /* soluk gri-kırmızı ikincil */
+  --muted: #8f7a7a;         /* pale gray-red secondary */
 
-  /* aksan / tehlike kırmızısı */
-  --accent: #ff3b3b;        /* parlak kırmızı (siyah üstünde yüksek kontrast metin) */
-  --edge: #ff2a2a;          /* chrome kenar kırmızısı */
-  --edge-dim: #cc0000;      /* koyu kırmızı */
+  /* accent / danger red */
+  --accent: #ff3b3b;        /* bright red (high-contrast text on black) */
+  --edge: #ff2a2a;          /* chrome edge red */
+  --edge-dim: #cc0000;      /* dark red */
   --glow: rgba(255, 42, 42, .55);
-  --sel: rgba(255, 42, 42, .16);   /* seçim vurgusu — düşük alfa, metin okunur kalsın */
+  --sel: rgba(255, 42, 42, .16);   /* selection highlight — low alpha, keep text readable */
   --row-hover: #160d0d;
 
-  /* durum (okunabilirlik için anlamsal renkler korunur) */
+  /* status (semantic colors kept for readability) */
   --ok: #46d369; --warn: #e8b23a; --err: #ff2a2a;
 
   --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
@@ -41,7 +41,7 @@ body {
 }
 
 /* ============================================================
-   BOOT EKRANI — saf CSS, ~3sn sonra kaybolur (JS yok)
+   BOOT SCREEN — pure CSS, disappears after ~3s (no JS)
    ============================================================ */
 #boot {
   position: fixed; inset: 0; z-index: 9999;
@@ -89,7 +89,7 @@ body {
 }
 
 /* ============================================================
-   ÜST BAR — Blackwall kimliği + HUD köşe işaretleri
+   TOP BAR — Blackwall identity + HUD corner marks
    ============================================================ */
 .topbar {
   position: relative;
@@ -98,7 +98,7 @@ body {
   border-bottom: 2px solid var(--edge);
   box-shadow: 0 0 18px rgba(255, 42, 42, .22), inset 0 -1px 0 rgba(255,42,42,.25);
 }
-/* tehlike/karantina şeridi */
+/* danger/quarantine stripe */
 .topbar::before {
   content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px;
   background: repeating-linear-gradient(90deg, var(--edge) 0 14px, transparent 14px 28px);
@@ -118,7 +118,7 @@ body {
 }
 
 /* ============================================================
-   FORM ELEMANLARI + DÜĞMELER (chrome — efektli)
+   FORM ELEMENTS + BUTTONS (chrome — with effects)
    ============================================================ */
 input, select, textarea, button {
   background: #0f0b0b; color: var(--fg);
@@ -147,7 +147,7 @@ button.danger {
 }
 button.danger:hover { border-color: var(--err); color: #fff; box-shadow: 0 0 12px var(--glow); }
 
-/* ince glitch — yalnız chrome (hover/aktif), içerik alanlarında asla */
+/* subtle glitch — chrome only (hover/active), never in content areas */
 @keyframes glitch {
   0% { transform: translate(0, 0); }
   25% { transform: translate(-1px, 1px); }
@@ -162,7 +162,7 @@ main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
 .detail { display: flex; flex-direction: column; min-height: 0; position: relative; }
 
 /* ============================================================
-   HISTORY TABLOSU — TEMİZ, yüksek kontrast, efektsiz
+   HISTORY TABLE — CLEAN, high contrast, no effects
    ============================================================ */
 table { width: 100%; border-collapse: collapse; }
 th, td {
@@ -206,7 +206,7 @@ tbody tr.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--edge); }
 .pane.active { display: flex; flex-direction: column; }
 
 /* ============================================================
-   METİN EDİTÖRLERİ / HAM GÖRÜNÜMLER — TEMİZ, efektsiz
+   TEXT EDITORS / RAW VIEWS — CLEAN, no effects
    ============================================================ */
 .raw {
   font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word;
@@ -359,8 +359,8 @@ label.inline input[type=number] { width: 64px; }
 #race-detail { max-height: 32vh; }
 
 /* ============================================================
-   HUD köşe işaretleri — çalışma çerçevesinin köşelerine kırmızı
-   köşebentler (yalnız dekoratif, pointer-events yok)
+   HUD corner marks — red brackets on the corners of the work
+   frame (decorative only, no pointer-events)
    ============================================================ */
 main::before, main::after,
 .detail::before, .detail::after {

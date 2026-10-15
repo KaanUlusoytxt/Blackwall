@@ -1,14 +1,14 @@
-"""mitmproxy addon'u: HTTP(S) akışlarını ve WebSocket mesajlarını SQLite'a yazar.
+"""mitmproxy addon: writes HTTP(S) flows and WebSocket messages to SQLite.
 
-Kullanım:
+Usage:
     mitmdump -s blackwall/addon.py
 
-- HTTP istek/yanıtları `flows` tablosuna (response/error hook'ları).
-- WebSocket bağlantıları `ws_flows`, mesajları `ws_messages` tablosuna.
-- `ws_inject` kuyruğu: web süreci enjeksiyon isteği yazar; bu addon canlı
-  bağlantıya `inject.websocket` komutuyla mesajı gerçekten gönderir.
+- HTTP requests/responses go to the `flows` table (response/error hooks).
+- WebSocket connections go to `ws_flows`, messages to `ws_messages`.
+- The `ws_inject` queue: the web process enqueues an injection request; this
+  addon actually sends it to the live connection via the `inject.websocket` command.
 
-HTTP/2 Faz 1 kapsamı dışında.
+HTTP/2 proxy capture is out of scope.
 """
 from __future__ import annotations
 
@@ -24,9 +24,9 @@ from blackwall import db
 class BlackwallAddon:
     def __init__(self) -> None:
         db.init_db()
-        # Addon tek thread'de (mitmproxy event loop'u) çalışır; tek bağlantı yeterli.
+        # The addon runs on a single thread (mitmproxy event loop); one connection is enough.
         self.conn: sqlite3.Connection = db.connect()
-        # Canlı WebSocket akışları: flow.id -> flow (enjeksiyon için gerekli)
+        # Live WebSocket flows: flow.id -> flow (needed for injection)
         self.live_ws: dict[str, http.HTTPFlow] = {}
         self._running = False
         self._task: asyncio.Task | None = None
@@ -67,7 +67,7 @@ class BlackwallAddon:
                 created_at=req.timestamp_start,
             )
         except Exception as exc:
-            ctx.log.warn(f"Blackwall: HTTP akışı kaydedilemedi: {exc}")
+            ctx.log.warn(f"Blackwall: failed to store HTTP flow: {exc}")
 
     # -- WebSocket ----------------------------------------------------------
     def websocket_start(self, flow: http.HTTPFlow) -> None:
@@ -84,7 +84,7 @@ class BlackwallAddon:
             )
             self.live_ws[flow.id] = flow
         except Exception as exc:
-            ctx.log.warn(f"Blackwall: ws_start kaydedilemedi: {exc}")
+            ctx.log.warn(f"Blackwall: failed to store ws_start: {exc}")
 
     def websocket_message(self, flow: http.HTTPFlow) -> None:
         if flow.websocket is None or not flow.websocket.messages:
@@ -101,7 +101,7 @@ class BlackwallAddon:
                 injected=bool(msg.injected),
             )
         except Exception as exc:
-            ctx.log.warn(f"Blackwall: ws mesajı kaydedilemedi: {exc}")
+            ctx.log.warn(f"Blackwall: failed to store ws message: {exc}")
 
     def websocket_end(self, flow: http.HTTPFlow) -> None:
         ws = flow.websocket
@@ -115,11 +115,11 @@ class BlackwallAddon:
                 close_reason=ws.close_reason if ws else None,
             )
         except Exception as exc:
-            ctx.log.warn(f"Blackwall: ws_end kaydedilemedi: {exc}")
+            ctx.log.warn(f"Blackwall: failed to store ws_end: {exc}")
         finally:
             self.live_ws.pop(flow.id, None)
 
-    # -- Enjeksiyon kuyruğu -------------------------------------------------
+    # -- Injection queue ----------------------------------------------------
     def running(self) -> None:
         if self._task is None:
             self._running = True
@@ -130,7 +130,7 @@ class BlackwallAddon:
             try:
                 self._process_injects()
             except Exception as exc:
-                ctx.log.warn(f"Blackwall: enjeksiyon döngüsü hatası: {exc}")
+                ctx.log.warn(f"Blackwall: injection loop error: {exc}")
             await asyncio.sleep(0.4)
 
     def _process_injects(self) -> None:
@@ -141,7 +141,7 @@ class BlackwallAddon:
             if flow is None:
                 db.ws_mark_inject(
                     self.conn, row["id"], "gone",
-                    processed_at=now, error="bağlantı açık değil",
+                    processed_at=now, error="connection not open",
                 )
                 continue
             try:

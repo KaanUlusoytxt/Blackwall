@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Blackwall masaüstü giriş noktası.
+"""Blackwall desktop entry point.
 
-Tek komutla (ya da çift tıklamayla) çalışır:
+Runs with a single command (or a double-click):
 
     .venv/bin/python app.py
 
-Şunları birlikte ayağa kaldırır:
-  * mitmproxy (mitmdump) — proxy, varsayılan 127.0.0.1:8080
-  * FastAPI + web UI (uvicorn) — varsayılan 127.0.0.1:8000, arka plan thread'inde
-  * PyWebView penceresi — web UI'ı kendi masaüstü penceresinde açar
+Brings these up together:
+  * mitmproxy (mitmdump) — proxy, default 127.0.0.1:8080
+  * FastAPI + web UI (uvicorn) — default 127.0.0.1:8000, in a background thread
+  * PyWebView window — opens the web UI in its own desktop window
 
-Pencere kapanınca proxy ve web sunucusu temiz şekilde kapatılır.
+When the window closes, the proxy and web server are shut down cleanly.
 
-Ortam değişkenleri (opsiyonel):
-  PROXY_PORT (8080), WEB_PORT (8000), BLACKWALL_DB (proje kökü/blackwall.db)
+Environment variables (optional):
+  PROXY_PORT (8080), WEB_PORT (8000), BLACKWALL_DB (project root/blackwall.db)
 """
 from __future__ import annotations
 
@@ -30,20 +30,20 @@ PROXY_PORT = int(os.environ.get("PROXY_PORT", "8080"))
 WEB_PORT = int(os.environ.get("WEB_PORT", "8000"))
 WEB_HOST = "127.0.0.1"
 
-# Alt süreçlerin ve addon'un aynı veritabanını kullanması için sabitle.
+# Pin the DB path so child processes and the addon all use the same database.
 os.environ.setdefault("BLACKWALL_DB", str(ROOT / "blackwall.db"))
-# Web süreci "Tarayıcı Aç"ta doğru proxy portunu bilsin.
+# Let the web process know the correct proxy port for "Open Browser".
 os.environ["PROXY_PORT"] = str(PROXY_PORT)
 
-# Proje kökü import yolunda olsun (addon ve web modülleri için).
+# Make sure the project root is on the import path (for the addon and web modules).
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
 def _venv_bin(name: str) -> str:
-    """Çalışmakta olan yorumlayıcının yanındaki aracı bul (venv/bin/<name>)."""
-    # .resolve() KULLANMA: venv/bin/python çoğu zaman sistem python'una sembolik
-    # link; resolve edersek venv dışına çıkar ve mitmdump'ı bulamayız.
+    """Find a tool next to the running interpreter (venv/bin/<name>)."""
+    # Do NOT use .resolve(): venv/bin/python is often a symlink to the system
+    # python; resolving it would leave the venv and we would not find mitmdump.
     cand = Path(sys.executable).parent / name
     return str(cand) if cand.exists() else name
 
@@ -64,7 +64,7 @@ def _wait_port(host: str, port: int, timeout: float = 20.0) -> bool:
 
 
 def start_proxy() -> subprocess.Popen:
-    """mitmdump'ı ayrı bir süreç olarak başlat (kendi asyncio döngüsü var)."""
+    """Start mitmdump as a separate process (it has its own asyncio loop)."""
     env = dict(os.environ)
     env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     cmd = [
@@ -73,7 +73,7 @@ def start_proxy() -> subprocess.Popen:
         "--listen-host", "127.0.0.1",
         "--listen-port", str(PROXY_PORT),
     ]
-    # Kendi oturum grubunda başlat ki temiz kapatabilelim.
+    # Start it in its own session group so we can shut it down cleanly.
     return subprocess.Popen(
         cmd,
         env=env,
@@ -85,7 +85,7 @@ def start_proxy() -> subprocess.Popen:
 
 
 class WebServer:
-    """uvicorn'u arka plan thread'inde çalıştırır; temiz kapatma sağlar."""
+    """Run uvicorn in a background thread; provides clean shutdown."""
 
     def __init__(self) -> None:
         import uvicorn
@@ -100,7 +100,7 @@ class WebServer:
             access_log=False,
         )
         self.server = uvicorn.Server(config)
-        self.server.install_signal_handlers = lambda: None  # thread'de sinyal yok
+        self.server.install_signal_handlers = lambda: None  # no signals in a thread
         self.thread = threading.Thread(target=self.server.run, daemon=True)
 
     def start(self) -> None:
@@ -126,8 +126,8 @@ def main() -> int:
         if cleaned.is_set():
             return
         cleaned.set()
-        # "Tarayıcı Aç" ile açılmış tarayıcıları kapat (web shutdown da yapar;
-        # aynı süreçte olduğumuz için tekrar güvenli).
+        # Close browsers opened via "Open Browser" (the web shutdown also does this;
+        # safe to repeat since we are in the same process).
         try:
             from blackwall import browser
             browser.close_all()
@@ -145,13 +145,13 @@ def main() -> int:
         web.stop()
 
     if not _wait_port(WEB_HOST, WEB_PORT):
-        print("Web sunucusu başlatılamadı.", file=sys.stderr)
+        print("Failed to start the web server.", file=sys.stderr)
         proxy.terminate()
         return 1
 
     proxy_ok = _wait_port("127.0.0.1", PROXY_PORT, timeout=10.0)
     if not proxy_ok:
-        print(f"Uyarı: proxy {PROXY_PORT} portunda görünmüyor (yine de devam ediliyor).",
+        print(f"Warning: proxy not visible on port {PROXY_PORT} (continuing anyway).",
               file=sys.stderr)
 
     print(f"Proxy  : http://127.0.0.1:{PROXY_PORT}")
@@ -164,12 +164,12 @@ def main() -> int:
         width=1400,
         height=900,
         min_size=(900, 600),
-        background_color="#0a0a0a",  # yüklenirken beyaz parlama olmasın
+        background_color="#0a0a0a",  # avoid a white flash while loading
     )
 
     window.events.closed += cleanup
 
-    # Terminal'den Ctrl-C ya da SIGTERM gelirse de proxy'yi orphan bırakmadan kapat.
+    # If Ctrl-C or SIGTERM arrives from the terminal, close the proxy without orphaning it.
     def _on_signal(signum, frame) -> None:  # noqa: ANN001
         cleanup()
         os._exit(0)
@@ -181,7 +181,7 @@ def main() -> int:
             pass
 
     try:
-        # Qt backend'i sabitle (GTK 'gi' modülü yoksa gürültülü traceback basmasın).
+        # Pin the Qt backend (avoid a noisy traceback when the GTK 'gi' module is missing).
         webview.start(gui="qt")
     finally:
         cleanup()
