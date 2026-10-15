@@ -13,9 +13,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
+import re
+
 import httpx
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -41,6 +43,67 @@ def _startup() -> None:
 def _shutdown() -> None:
     # Uygulama kapanınca "Tarayıcı Aç" ile başlatılan tarayıcıları da kapat.
     browser.close_all()
+
+
+# ---------------------------------------------------------------------------
+# Hata mesajı i18n: endpoint'ler Türkçe `detail` yükseltir; istemci cookie'si
+# (lang=en) varsa yanıt İngilizceye çevrilir. Endpoint'lere dokunulmaz,
+# `data.detail` string kalır (frontend sözleşmesi bozulmaz).
+# ---------------------------------------------------------------------------
+_ERR_EN = {
+    "Akış bulunamadı": "Flow not found",
+    "Üretilecek istek yok (payload listeleri boş olabilir)":
+        "No requests to generate (payload lists may be empty)",
+    "İş bulunamadı": "Job not found",
+    "Aktif OAST oturumu yok": "No active OAST session",
+    "Etkileşim bulunamadı": "Interaction not found",
+    "direction c2s veya s2c olmalı": "direction must be c2s or s2c",
+    "WebSocket akışı bulunamadı": "WebSocket flow not found",
+    "Bağlantı artık açık değil; mesaj gönderilemez":
+        "Connection is no longer open; cannot send message",
+    "Enjeksiyon kaydı bulunamadı": "Injection record not found",
+    "host gerekli": "host is required",
+    "port 1-65535 arası olmalı": "port must be between 1 and 65535",
+    "smuggle modu için İstek 2 (takip) gerekli":
+        "Request 2 (follow-up) is required for smuggle mode",
+    "mode crlf | lf | escape olmalı": "mode must be crlf | lf | escape",
+    "boş istek gönderilemez": "cannot send an empty request",
+}
+# Dinamik kuyruklu mesajlar: Türkçe önek -> İngilizce önek (kuyruk aynen kalır).
+_ERR_EN_PREFIX = {
+    "Tarayıcı başlatılamadı: ": "Failed to launch browser: ",
+    "JWT çözülemedi: ": "JWT decode failed: ",
+    "İmzalama başarısız: ": "Signing failed: ",
+}
+_ERR_RE = (
+    (re.compile(r"^Toplam istek sayısı (\d+), üst sınır (\d+)\. "
+                r"Payload listelerini küçültün\.$"),
+     r"Total requests \1, limit \2. Reduce your payload lists."),
+)
+
+
+def _translate_detail(detail: str) -> str:
+    if detail in _ERR_EN:
+        return _ERR_EN[detail]
+    for tr_pre, en_pre in _ERR_EN_PREFIX.items():
+        if detail.startswith(tr_pre):
+            return en_pre + detail[len(tr_pre):]
+    for rx, repl in _ERR_RE:
+        if rx.match(detail):
+            return rx.sub(repl, detail)
+    return detail  # bilinmeyen/derin mesajlar olduğu gibi kalır
+
+
+@app.exception_handler(HTTPException)
+async def _localized_http_exception(request: Request, exc: HTTPException):
+    detail = exc.detail
+    if isinstance(detail, str) and request.cookies.get("lang") == "en":
+        detail = _translate_detail(detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": detail},
+        headers=getattr(exc, "headers", None),
+    )
 
 
 # ---------------------------------------------------------------------------

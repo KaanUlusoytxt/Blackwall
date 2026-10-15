@@ -70,7 +70,7 @@ function headersToText(headers) {
 function bodyToText(b) {
   if (!b || b.size === 0) return "";
   if (b.text != null) return b.text;
-  return `[ikili veri, ${b.size} bayt — base64]\n` + (b.base64 || "");
+  return t("js.binaryData", { size: b.size }) + "\n" + (b.base64 || "");
 }
 
 function renderDetail(f) {
@@ -79,7 +79,7 @@ function renderDetail(f) {
     reqLine + "\n" + headersToText(f.req_headers) + "\n\n" + bodyToText(f.req_body);
 
   if (f.error) {
-    $("#resp-view").textContent = "HATA: " + f.error;
+    $("#resp-view").textContent = t("js.errPrefix") + f.error;
   } else {
     const statusLine = `${f.http_version || "HTTP/1.1"} ${f.status_code ?? ""} ${f.reason ?? ""}`;
     $("#resp-view").textContent =
@@ -130,15 +130,15 @@ function repSwitch(id) {
 function repNewTab(init, name) {
   repSaveActive();
   const id = ++rep.seq;
-  const t = Object.assign(
-    { id, name: name || `Sekme ${id}`, method: "GET", url: "", headers: "", body: "", verify: false, follow: false, resp: "" },
+  const tab = Object.assign(
+    { id, name: name || t("js.tabName", { id }), auto: !name, method: "GET", url: "", headers: "", body: "", verify: false, follow: false, resp: "" },
     init || {},
   );
-  rep.tabs.push(t);
+  rep.tabs.push(tab);
   rep.activeId = id;
-  repFieldsToDom(t);
+  repFieldsToDom(tab);
   renderRepTabs();
-  return t;
+  return tab;
 }
 
 function repCloseTab(id) {
@@ -146,7 +146,7 @@ function repCloseTab(id) {
   if (i === -1) return;
   const wasActive = rep.activeId === id;
   rep.tabs.splice(i, 1);
-  if (rep.tabs.length === 0) { repNewTab(null, "Sekme"); return; }
+  if (rep.tabs.length === 0) { repNewTab(null); return; }
   if (wasActive) {
     const next = rep.tabs[Math.max(0, i - 1)];
     rep.activeId = next.id;
@@ -156,38 +156,40 @@ function repCloseTab(id) {
 }
 
 function repRename(id) {
-  const t = rep.tabs.find((x) => x.id === id);
-  if (!t) return;
-  const name = prompt("Sekme adı:", t.name);
-  if (name != null && name.trim()) { t.name = name.trim(); renderRepTabs(); }
+  const t2 = rep.tabs.find((x) => x.id === id);
+  if (!t2) return;
+  const name = prompt(t("js.tabRenamePrompt"), t2.name);
+  if (name != null && name.trim()) { t2.name = name.trim(); t2.auto = false; renderRepTabs(); }
 }
 
 function renderRepTabs() {
   const bar = $("#rep-tabs");
   bar.innerHTML = "";
-  for (const t of rep.tabs) {
+  for (const tab of rep.tabs) {
+    // Otomatik adlı (kullanıcı adlandırmamış) sekmeler dil değişince güncellensin.
+    if (tab.auto) tab.name = t("js.tabName", { id: tab.id });
     const el = document.createElement("div");
-    el.className = "rep-tab" + (t.id === rep.activeId ? " active" : "");
-    el.title = "çift tıkla: yeniden adlandır";
+    el.className = "rep-tab" + (tab.id === rep.activeId ? " active" : "");
+    el.title = t("js.tabDblRename");
     const label = document.createElement("span");
-    label.textContent = t.name;
-    label.onclick = () => repSwitch(t.id);
-    el.ondblclick = () => repRename(t.id);
+    label.textContent = tab.name;
+    label.onclick = () => repSwitch(tab.id);
+    el.ondblclick = () => repRename(tab.id);
     const x = document.createElement("span");
-    x.className = "x"; x.textContent = "×"; x.title = "kapat";
-    x.onclick = (e) => { e.stopPropagation(); repCloseTab(t.id); };
+    x.className = "x"; x.textContent = "×"; x.title = t("js.close");
+    x.onclick = (e) => { e.stopPropagation(); repCloseTab(tab.id); };
     el.appendChild(label); el.appendChild(x);
     bar.appendChild(el);
   }
   const add = document.createElement("button");
-  add.className = "rep-tab-add"; add.textContent = "+"; add.title = "yeni sekme";
+  add.className = "rep-tab-add"; add.textContent = "+"; add.title = t("js.newTab");
   add.onclick = () => repNewTab(null);
   bar.appendChild(add);
 }
 
 // Bir History/akış kaydından yeni sekme için başlangıç alanları.
 function repInitFromFlow(f) {
-  let name = "istek";
+  let name = t("js.requestWord");
   try { name = f.method + " " + new URL(f.url).pathname.slice(0, 18); } catch { name = f.method + " " + (f.path || "").slice(0, 18); }
   return {
     name,
@@ -230,11 +232,11 @@ async function sendRepeater() {
     });
     const f = await res.json();
     if (!res.ok) {
-      $("#rep-resp").textContent = "İstek başarısız: " + JSON.stringify(f);
+      $("#rep-resp").textContent = t("js.requestFailed") + JSON.stringify(f);
       return;
     }
     if (f.error) {
-      $("#rep-resp").textContent = "HATA: " + f.error;
+      $("#rep-resp").textContent = t("js.errPrefix") + f.error;
     } else {
       const statusLine = `${f.http_version || "HTTP/1.1"} ${f.status_code ?? ""} ${f.reason ?? ""}`;
       $("#rep-resp").textContent =
@@ -244,15 +246,15 @@ async function sendRepeater() {
     loadFlows();
   } finally {
     btn.disabled = false;
-    btn.textContent = "Gönder";
+    btn.textContent = t("rep.send");
   }
 }
 
 $("#req-to-repeater").onclick = () => {
-  if (!current) { alert("Önce History'den bir istek seçin."); return; }
+  if (!current) { alert(t("js.selectFlowFirst")); return; }
   repNewTab(repInitFromFlow(current));
-  const t = document.querySelector('.tab[data-pane="repeater"]');
-  if (t) t.click();
+  const t2 = document.querySelector('.tab[data-pane="repeater"]');
+  if (t2) t2.click();
 };
 
 // ---- Sekmeler & olaylar -----------------------------------------------
@@ -271,7 +273,7 @@ $("#refresh").onclick = loadFlows;
 $("#search").oninput = debounce(loadFlows, 250);
 $("#rep-send").onclick = sendRepeater;
 $("#clear").onclick = async () => {
-  if (!confirm("Tüm akışlar silinsin mi?")) return;
+  if (!confirm(t("js.confirmClear"))) return;
   await fetch("/api/flows", { method: "DELETE" });
   selectedId = null;
   loadFlows();
@@ -281,21 +283,21 @@ $("#open-browser").onclick = async () => {
   const btn = $("#open-browser");
   const label = btn.textContent;
   btn.disabled = true;
-  btn.textContent = "Açılıyor…";
+  btn.textContent = t("js.opening");
   try {
     const res = await fetch("/api/browser/open", { method: "POST" });
     const data = await res.json();
     if (!res.ok) {
-      alert(data.detail || "Tarayıcı başlatılamadı.");
+      alert(data.detail || t("js.browserFailed"));
       return;
     }
     const name = (data.browser || "").split("/").pop();
     const cert = data.cert_method === "nss"
-      ? "mitmproxy CA profile yüklendi"
-      : "sertifika hataları yoksayılıyor (CA/certutil yok)";
-    alert(`Tarayıcı açıldı: ${name}\n\nProxy önceden ayarlı, geçici profil kullanılıyor.\nSertifika: ${cert}.\nHTTPS sitelerini gezin; trafik History'ye düşecek.`);
+      ? t("js.browserCertNss")
+      : t("js.browserCertIgnore");
+    alert(t("js.browserOpened", { name, cert }));
   } catch (e) {
-    alert("Tarayıcı başlatılamadı: " + e);
+    alert(t("js.browserFailedPrefix") + e);
   } finally {
     btn.disabled = false;
     btn.textContent = label;
@@ -390,7 +392,7 @@ async function runDecoder() {
   renderPipeline(data.steps);
   const last = data.steps[data.steps.length - 1];
   $("#dec-result").textContent =
-    data.result != null ? data.result : (last && last.error ? "HATA: " + last.error : "");
+    data.result != null ? data.result : (last && last.error ? t("js.errPrefix") + last.error : "");
 }
 
 $("#dec-add").onclick = () => { decPipeline.push($("#dec-op").value); runDecoder(); };
@@ -407,11 +409,14 @@ async function jwtDecode() {
     body: JSON.stringify({ token }),
   });
   const data = await res.json();
-  if (!res.ok) { $("#jwt-out").textContent = "HATA: " + (data.detail || JSON.stringify(data)); return; }
+  if (!res.ok) { $("#jwt-out").textContent = t("js.errPrefix") + (data.detail || JSON.stringify(data)); return; }
   $("#jwt-header").value = pretty(data.header);
   $("#jwt-payload").value = pretty(data.payload);
-  $("#jwt-out").textContent =
-    `alg: ${data.alg}\nbölüm sayısı: ${data.parts}\nimza (b64url): ${data.signature || "(yok)"}`;
+  $("#jwt-out").textContent = t("js.jwtOut", {
+    alg: data.alg,
+    parts: data.parts,
+    sig: data.signature || t("js.noneParen"),
+  });
 }
 
 function pretty(v) {
@@ -422,7 +427,7 @@ function pretty(v) {
 function parseJsonField(sel, label) {
   const txt = $(sel).value.trim();
   try { return JSON.parse(txt); }
-  catch (e) { throw new Error(`${label} geçerli JSON değil: ${e.message}`); }
+  catch (e) { throw new Error(t("js.invalidJson", { label, msg: e.message })); }
 }
 
 async function jwtSign(alg) {
@@ -435,11 +440,11 @@ async function jwtSign(alg) {
       body: JSON.stringify({ payload, alg, secret: $("#jwt-secret").value, header }),
     });
     const data = await res.json();
-    if (!res.ok) { $("#jwt-out").textContent = "HATA: " + (data.detail || JSON.stringify(data)); return; }
+    if (!res.ok) { $("#jwt-out").textContent = t("js.errPrefix") + (data.detail || JSON.stringify(data)); return; }
     $("#jwt-out").textContent = data.token;
     $("#jwt-token").value = data.token;
   } catch (e) {
-    $("#jwt-out").textContent = "HATA: " + e.message;
+    $("#jwt-out").textContent = t("js.errPrefix") + e.message;
   }
 }
 
@@ -509,26 +514,26 @@ function rebuildPayloadEditors() {
   container.querySelectorAll("textarea").forEach((ta) => { psetCache[+ta.dataset.i] = ta.value; });
   container.innerHTML = "";
   if (n === 0) {
-    container.innerHTML = `<div class="hint">Önce istekte §...§ ile en az bir konum işaretleyin.</div>`;
+    container.innerHTML = `<div class="hint">${escapeHtml(t("js.intrMarkHint"))}</div>`;
     updateEstimate();
     return;
   }
   for (let i = 0; i < n; i++) {
-    const label = sniper ? "Tek liste — tüm konumlara uygulanır" : `Konum ${i + 1}`;
+    const label = sniper ? t("js.intrSingleList") : t("js.intrPosition", { n: i + 1 });
     const div = document.createElement("div");
     div.className = "pset";
     div.innerHTML = `
-      <div class="pset-head">${label}</div>
-      <textarea data-i="${i}" rows="4" spellcheck="false" placeholder="her satır bir payload"></textarea>
+      <div class="pset-head">${escapeHtml(label)}</div>
+      <textarea data-i="${i}" rows="4" spellcheck="false" placeholder="${escapeHtml(t("js.intrPayloadPh"))}"></textarea>
       <div class="gen">
-        <span class="hint">sayı:</span>
-        <input type="number" class="g-from" placeholder="başl" />
-        <input type="number" class="g-to" placeholder="bitiş" />
-        <input type="number" class="g-step" placeholder="adım" value="1" />
-        <button class="mini g-num">ekle</button>
-        <span class="hint">karakter seti:</span>
-        <input type="text" class="wide g-charset" placeholder="abc0-9 gibi ham" />
-        <button class="mini g-char">ekle</button>
+        <span class="hint">${escapeHtml(t("js.intrNumber"))}</span>
+        <input type="number" class="g-from" placeholder="${escapeHtml(t("js.intrFrom"))}" />
+        <input type="number" class="g-to" placeholder="${escapeHtml(t("js.intrTo"))}" />
+        <input type="number" class="g-step" placeholder="${escapeHtml(t("js.intrStep"))}" value="1" />
+        <button class="mini g-num">${escapeHtml(t("js.addWord"))}</button>
+        <span class="hint">${escapeHtml(t("js.intrCharset"))}</span>
+        <input type="text" class="wide g-charset" placeholder="${escapeHtml(t("js.intrCharsetPh"))}" />
+        <button class="mini g-char">${escapeHtml(t("js.addWord"))}</button>
         <span class="cnt"></span>
       </div>`;
     const ta = div.querySelector("textarea");
@@ -566,7 +571,7 @@ function appendLines(ta, items) {
 }
 
 function updateCount(div, ta) {
-  div.querySelector(".cnt").textContent = linesOf(ta.value).length + " payload";
+  div.querySelector(".cnt").textContent = t("js.payloadCount", { n: linesOf(ta.value).length });
 }
 
 function getPayloadSets() {
@@ -589,7 +594,7 @@ function updateEstimate() {
 }
 
 $("#intr-load").onclick = () => {
-  if (!current) { alert("Önce History'den bir istek seçin."); return; }
+  if (!current) { alert(t("js.selectFlowFirst")); return; }
   $("#intr-req").value = rawFromFlow(current);
   // Hedefi (şema+host+port) flow'dan otomatik al — elle Host/https gerekmez.
   $("#intr-target").value = flowTargetUrl(current);
@@ -599,7 +604,7 @@ $("#intr-load").onclick = () => {
 $("#intr-mark").onclick = () => {
   const ta = $("#intr-req");
   const s = ta.selectionStart, e = ta.selectionEnd;
-  if (s === e) { alert("Önce istekte işaretlenecek metni seçin."); return; }
+  if (s === e) { alert(t("js.intrSelectText")); return; }
   const v = ta.value;
   ta.value = v.slice(0, s) + "§" + v.slice(s, e) + "§" + v.slice(e);
   rebuildPayloadEditors();
@@ -610,9 +615,9 @@ $("#intr-attack").onchange = rebuildPayloadEditors;
 
 async function intruderStart() {
   const pos = countPositions($("#intr-req").value);
-  if (pos === 0) { alert("İstekte §...§ ile en az bir konum işaretleyin."); return; }
+  if (pos === 0) { alert(t("js.intrNeedPosition")); return; }
   const tgt = parseTarget($("#intr-target").value);
-  if (!tgt.host) { alert("Hedef boş. Önce 'Seçili isteği yükle' ile bir istek alın ya da hedef girin."); return; }
+  if (!tgt.host) { alert(t("js.intrTargetEmpty")); return; }
   const payload = {
     request_text: $("#intr-req").value,
     scheme: tgt.scheme,
@@ -631,7 +636,7 @@ async function intruderStart() {
     body: JSON.stringify(payload),
   });
   const data = await res.json();
-  if (!res.ok) { alert("Başlatılamadı: " + (data.detail || JSON.stringify(data))); return; }
+  if (!res.ok) { alert(t("js.startFailedPrefix") + (data.detail || JSON.stringify(data))); return; }
   intr.jobId = data.job_id;
   intr.results = [];
   intr.selIdx = null;
@@ -649,7 +654,7 @@ async function pollIntruder() {
   intr.results = data.results;
   ensureGrepUI(data.grep_terms || []);
   $("#intr-progress").textContent =
-    `${data.state} — ${data.done}/${data.total}`;
+    `${t("istate." + data.state, null, data.state)} — ${data.done}/${data.total}`;
   renderIntrTable();
   if (data.state === "running") {
     intr.poll = setTimeout(pollIntruder, 500);
@@ -676,23 +681,23 @@ for (const th of document.querySelectorAll("#intr-table th")) {
 ["#intr-f-status", "#intr-f-min", "#intr-f-max"].forEach((s) => $(s).oninput = debounce(renderIntrTable, 150));
 $("#intr-f-err").onchange = renderIntrTable;
 
-function grepLabel(t) { return t.length > 12 ? t.slice(0, 12) + "…" : t; }
+function grepLabel(t2) { return t2.length > 12 ? t2.slice(0, 12) + "…" : t2; }
 
 // grep terimlerine göre dinamik sütun başlıkları + filtre açılırları kurar.
 function ensureGrepUI(terms) {
-  const same = terms.length === intr.grepTerms.length && terms.every((t, i) => t === intr.grepTerms[i]);
+  const same = terms.length === intr.grepTerms.length && terms.every((t2, i) => t2 === intr.grepTerms[i]);
   if (same) return;
   intr.grepTerms = terms.slice();
   intr.grepFilter = {};
 
   const headRow = document.querySelector("#intr-table thead tr");
   headRow.querySelectorAll("th.grep-col").forEach((th) => th.remove());
-  terms.forEach((t, i) => {
+  terms.forEach((t2, i) => {
     const th = document.createElement("th");
     th.className = "grep-col";
     th.dataset.sort = "grep:" + i;
-    th.title = t;
-    th.textContent = "🔎 " + grepLabel(t);
+    th.title = t2;
+    th.textContent = "🔎 " + grepLabel(t2);
     th.onclick = () => {
       const key = th.dataset.sort;
       if (intr.sort.key === key) intr.sort.dir *= -1;
@@ -704,16 +709,16 @@ function ensureGrepUI(terms) {
 
   const fc = $("#intr-grep-filters");
   fc.innerHTML = "";
-  terms.forEach((t, i) => {
+  terms.forEach((t2, i) => {
     intr.grepFilter[i] = "all";
     const sel = document.createElement("select");
     sel.className = "grep-filt";
-    sel.title = t;
-    const lbl = escapeHtml(grepLabel(t));
+    sel.title = t2;
+    const lbl = escapeHtml(grepLabel(t2));
     sel.innerHTML =
-      `<option value="all">${lbl}: hepsi</option>` +
-      `<option value="yes">${lbl}: var</option>` +
-      `<option value="no">${lbl}: yok</option>`;
+      `<option value="all">${lbl}: ${escapeHtml(t("js.grepAll"))}</option>` +
+      `<option value="yes">${lbl}: ${escapeHtml(t("js.grepYes"))}</option>` +
+      `<option value="no">${lbl}: ${escapeHtml(t("js.grepNo"))}</option>`;
     sel.onchange = () => { intr.grepFilter[i] = sel.value; renderIntrTable(); };
     fc.appendChild(sel);
   });
@@ -791,18 +796,19 @@ async function showIntrDetail(index) {
   const data = await res.json();
   $("#intr-detail-idx").textContent = `#${index}`;
   $("#intr-detail").textContent =
-    "=== İSTEK ===\n" + data.request + "\n\n=== YANIT ===\n" + data.response;
+    "=== " + t("js.reqSection") + " ===\n" + data.request + "\n\n=== " + t("js.respSection") + " ===\n" + data.response;
 }
 
 // ---- OAST --------------------------------------------------------------
-const oast = { poll: null, selIdx: null, lastCount: 0 };
+const oast = { poll: null, selIdx: null, lastCount: 0, polling: false, last: null };
 
 function setOastButtons(active, polling) {
+  oast.polling = !!polling;
   $("#oast-start").disabled = active;
   $("#oast-stop").disabled = !active;
   $("#oast-gen").disabled = !active;
   $("#oast-pause").disabled = !active;
-  $("#oast-pause").textContent = polling ? "Poll'u duraklat" : "Poll'u sürdür";
+  $("#oast-pause").textContent = polling ? t("oast.pause") : t("oast.resume");
   $("#oast-server").disabled = active;
   $("#oast-token").disabled = active;
 }
@@ -816,7 +822,7 @@ function renderOastUrls(urls) {
     li.onclick = () => {
       copyText(u);
       const s = document.createElement("span");
-      s.className = "copied"; s.textContent = "✓ kopyalandı";
+      s.className = "copied"; s.textContent = t("js.copied");
       li.appendChild(s);
       setTimeout(() => s.remove(), 1200);
     };
@@ -831,13 +837,13 @@ function renderOastTable(interactions) {
   for (const it of [...interactions].reverse()) {
     const tr = document.createElement("tr");
     if (it.index === oast.selIdx) tr.classList.add("sel");
-    const t = it.timestamp ? it.timestamp.replace("T", " ").slice(0, 19) : "";
+    const t2 = it.timestamp ? it.timestamp.replace("T", " ").slice(0, 19) : "";
     tr.innerHTML = `
       <td>${it.index}</td>
       <td class="p-${it.protocol}">${it.protocol}</td>
       <td>${it.q_type || "—"}</td>
       <td>${escapeHtml(it.remote_address || "—")}</td>
-      <td>${escapeHtml(t)}</td>
+      <td>${escapeHtml(t2)}</td>
       <td title="${escapeHtml(it.full_id)}">${escapeHtml(it.full_id)}</td>`;
     tr.onclick = () => showOastDetail(it.index);
     tbody.appendChild(tr);
@@ -845,11 +851,12 @@ function renderOastTable(interactions) {
 }
 
 function applyOastStatus(data) {
+  oast.last = data;
   setOastButtons(data.active, data.polling);
   renderOastUrls(data.urls || []);
   renderOastTable(data.interactions || []);
   $("#oast-count").textContent = data.count || 0;
-  let state = data.active ? (data.polling ? "dinleniyor" : "duraklatıldı") : "kapalı";
+  let state = data.active ? (data.polling ? t("js.oastListening") : t("js.oastPaused")) : t("js.oastClosed");
   if (data.correlation_id) state += ` · id ${data.correlation_id} · ${data.server}`;
   if (data.error) state += ` · ⚠ ${data.error}`;
   $("#oast-state").textContent = state;
@@ -863,13 +870,13 @@ async function oastStatus() {
 
 $("#oast-start").onclick = async () => {
   $("#oast-start").disabled = true;
-  $("#oast-state").textContent = "kaydolunuyor…";
+  $("#oast-state").textContent = t("js.oastRegistering");
   const res = await fetch("/api/oast/start", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ server: $("#oast-server").value.trim(), token: $("#oast-token").value.trim() }),
   });
   const data = await res.json();
-  if (!res.ok) { $("#oast-state").textContent = "⚠ " + (data.detail || "başlatılamadı"); $("#oast-start").disabled = false; return; }
+  if (!res.ok) { $("#oast-state").textContent = "⚠ " + (data.detail || t("js.startFailed")); $("#oast-start").disabled = false; return; }
   oast.selIdx = null; $("#oast-detail").textContent = "";
   applyOastStatus(data);
   startOastPolling();
@@ -888,7 +895,7 @@ $("#oast-gen").onclick = async () => {
 };
 
 $("#oast-pause").onclick = async () => {
-  const polling = $("#oast-pause").textContent.includes("duraklat");
+  const polling = oast.polling;
   await fetch("/api/oast/" + (polling ? "pause" : "resume"), { method: "POST" });
   oastStatus();
 };
@@ -907,11 +914,11 @@ async function showOastDetail(index) {
   if (!res.ok) return;
   const d = await res.json();
   $("#oast-detail-idx").textContent = `#${index} · ${d.protocol}`;
-  let out = `protokol : ${d.protocol}\n`;
-  if (d.q_type) out += `tip      : ${d.q_type}\n`;
-  out += `kaynak IP: ${d.remote_address}\nzaman    : ${d.timestamp}\nfull-id  : ${d.full_id}\n`;
-  out += `\n=== HAM İSTEK ===\n${d.raw_request || "(yok)"}`;
-  if (d.raw_response) out += `\n\n=== HAM YANIT ===\n${d.raw_response}`;
+  let out = t("js.oastDProtocol") + `${d.protocol}\n`;
+  if (d.q_type) out += t("js.oastDType") + `${d.q_type}\n`;
+  out += t("js.oastDSrcip") + `${d.remote_address}\n` + t("js.oastDTime") + `${d.timestamp}\n` + t("js.oastDFullid") + `${d.full_id}\n`;
+  out += `\n=== ` + t("js.rawRequestSection") + ` ===\n${d.raw_request || t("js.noneParen")}`;
+  if (d.raw_response) out += `\n\n=== ` + t("js.rawResponseSection") + ` ===\n${d.raw_response}`;
   $("#oast-detail").textContent = out;
   for (const tr of $("#oast-tbody").querySelectorAll("tr")) {
     tr.classList.toggle("sel", tr.firstElementChild && tr.firstElementChild.textContent === String(index));
@@ -919,12 +926,14 @@ async function showOastDetail(index) {
 }
 
 // ---- Raw ---------------------------------------------------------------
-const RAW_HINTS = {
-  crlf: "Her satır \\r\\n ile biter. Textarea'da yazılan normal istekler için.",
-  lf: "Satır sonları LF (\\n) kalır — bare-LF testleri için.",
-  escape: "Gerçek satır sonları yok sayılır; byte'ları \\r \\n \\t \\0 \\xHH ile yazın. Tam kontrol.",
-};
-function rawHint() { $("#raw-mode-hint").textContent = RAW_HINTS[$("#raw-mode").value]; }
+function rawHints() {
+  return {
+    crlf: t("js.rawHintCrlf"),
+    lf: t("js.rawHintLf"),
+    escape: t("js.rawHintEscape"),
+  };
+}
+function rawHint() { $("#raw-mode-hint").textContent = rawHints()[$("#raw-mode").value]; }
 $("#raw-mode").onchange = rawHint;
 
 function b64ToBytes(b64) {
@@ -955,7 +964,7 @@ function renderBytes(b64) {
 
 async function rawSend() {
   const btn = $("#raw-send");
-  btn.disabled = true; $("#raw-state").textContent = "gönderiliyor…";
+  btn.disabled = true; $("#raw-state").textContent = t("js.sending");
   const payload = {
     host: $("#raw-host").value.trim(),
     port: parseInt($("#raw-port").value, 10) || 80,
@@ -978,10 +987,10 @@ async function rawSend() {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (!res.ok) { $("#raw-state").textContent = "⚠ " + (data.detail || "hata"); return; }
+    if (!res.ok) { $("#raw-state").textContent = "⚠ " + (data.detail || t("js.errorWord")); return; }
     renderRawResult(data);
     $("#raw-state").textContent = data.error ? "⚠ " + data.error
-      : `bağlantı OK${data.tls_version ? " · " + data.tls_version : ""} · ${data.requests.length} istek`;
+      : t("js.rawConnOk", { tls: data.tls_version ? " · " + data.tls_version : "", n: data.requests.length });
   } finally {
     btn.disabled = false;
   }
@@ -1000,16 +1009,16 @@ function renderRawResult(data) {
   for (const r of data.requests) {
     const div = document.createElement("div");
     div.className = "raw-result";
-    const title = r.label ? escapeHtml(r.label) : `istek #${r.index + 1}`;
-    let head = `<span>${title}</span><span>gönderilen: ${r.sent_size} B</span>` +
-      `<span>yanıt: ${r.response_size} B</span><span>${Math.round(r.duration_ms)} ms</span>`;
-    if (r.send_error) head += `<span class="err">gönderme: ${escapeHtml(r.send_error)}</span>`;
-    if (r.recv_error) head += `<span class="err">okuma: ${escapeHtml(r.recv_error)}</span>`;
+    const title = r.label ? escapeHtml(r.label) : escapeHtml(t("js.requestHash", { n: r.index + 1 }));
+    let head = `<span>${title}</span><span>${escapeHtml(t("js.sentLabel"))}${r.sent_size} B</span>` +
+      `<span>${escapeHtml(t("js.respLabel"))}${r.response_size} B</span><span>${Math.round(r.duration_ms)} ms</span>`;
+    if (r.send_error) head += `<span class="err">${escapeHtml(t("js.sendErr"))}${escapeHtml(r.send_error)}</span>`;
+    if (r.recv_error) head += `<span class="err">${escapeHtml(t("js.recvErr"))}${escapeHtml(r.recv_error)}</span>`;
     const pre = document.createElement("pre");
     pre.textContent = renderBytes(r.response_base64);
     const sent = document.createElement("details");
     sent.open = true;   // gönderilen isteği görünür göster (okunur; hex için "hex dump" kutusu)
-    sent.innerHTML = `<summary>gönderilen istek (${r.sent_size} B) — hex için üstteki "hex dump" kutusu</summary>`;
+    sent.innerHTML = `<summary>${escapeHtml(t("js.rawSentSummary", { size: r.sent_size }))}</summary>`;
     const spre = document.createElement("pre");
     spre.className = "sent";
     spre.textContent = renderBytes(r.sent_base64);
@@ -1029,21 +1038,17 @@ $("#raw-httpver").onchange = () => {
   $("#raw-malformed-wrap").style.display = h2 ? "" : "none";
   $("#raw-smuggle-wrap").style.display = h2 ? "" : "none";
   $("#raw-rounds-wrap").style.display = (h2 && $("#raw-smuggle").checked) ? "" : "none";
-  $("#raw-state").textContent = h2
-    ? "HTTP/2: ham istek parse edilip h2 isteği (HEADERS+DATA) olarak gönderilir"
-    : "";
+  $("#raw-state").textContent = h2 ? t("js.rawH2State") : "";
 };
 $("#raw-malformed").onchange = () => {
   $("#raw-state").textContent = $("#raw-malformed").checked
-    ? "malformed: h2 doğrulama/normalizasyon KAPALI; content-length/transfer-encoding gibi header'lar frame'e aynen konur"
-    : "HTTP/2: geçerli istek";
+    ? t("js.rawMalformedOn")
+    : t("js.rawMalformedOff");
 };
 $("#raw-smuggle").onchange = () => {
   const on = $("#raw-smuggle").checked;
   $("#raw-rounds-wrap").style.display = on ? "" : "none";
-  $("#raw-state").textContent = on
-    ? "smuggle: İstek 1 (smuggle, malformed) arka planda → gecikme → İstek 2 (takip) ayrı bağlantıdan; takip yanıtı gösterilir. İki istek textarea'sını doldurun."
-    : "";
+  $("#raw-state").textContent = on ? t("js.rawSmuggleOn") : "";
 };
 $("#raw-hex").onchange = () => { if (lastRawData) renderRawResult(lastRawData); };
 rawHint();
@@ -1055,7 +1060,7 @@ const raceSel = { idx: null };
 // Seçili History/Repeater isteğini yükle: tüm header'lar + body birebir,
 // request line HTTP/1.1; hedef host/port/şema flow'dan (Host satırına güvenme).
 $("#race-load").onclick = () => {
-  if (!current) { alert("Önce History'den bir istek seçin."); return; }
+  if (!current) { alert(t("js.selectFlowFirst")); return; }
   const line = `${current.method} ${current.path} HTTP/1.1`;
   const hdr = current.req_headers.map(([k, v]) => `${k}: ${v}`).join("\n");
   const body = current.req_body && current.req_body.text != null ? current.req_body.text : "";
@@ -1068,7 +1073,7 @@ $("#race-load").onclick = () => {
 
 async function raceRun() {
   const btn = $("#race-run");
-  btn.disabled = true; $("#race-state").textContent = "saldırı sürüyor…";
+  btn.disabled = true; $("#race-state").textContent = t("js.raceRunning");
   const payload = {
     host: $("#race-host").value.trim(),
     port: parseInt($("#race-port").value, 10) || (($("#race-tls").checked) ? 443 : 80),
@@ -1087,14 +1092,18 @@ async function raceRun() {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (!res.ok) { $("#race-state").textContent = "⚠ " + (data.detail || "hata"); return; }
+    if (!res.ok) { $("#race-state").textContent = "⚠ " + (data.detail || t("js.errorWord")); return; }
     lastRaceData = data;
     renderRaceTable(data);
     const distinct = data.results.filter((r) => r.distinct).length;
     $("#race-state").textContent =
       (data.error ? "⚠ " + data.error + " · " : "") +
-      `${data.count} bağlantı · çoğunluk ${data.majority || "—"} · ` +
-      `sync ±${data.sync_spread_ms.toFixed(2)}ms · farklı: ${distinct}`;
+      t("js.raceSummary", {
+        count: data.count,
+        majority: data.majority || "—",
+        sync: data.sync_spread_ms.toFixed(2),
+        distinct,
+      });
   } finally {
     btn.disabled = false;
   }
@@ -1125,18 +1134,17 @@ function showRaceDetail(index) {
   const r = lastRaceData.results.find((x) => x.index === index);
   if (!r) return;
   $("#race-detail-idx").textContent =
-    `#${index} · ${r.signature}` + (r.distinct ? " · ★ farklı sonuç" : "");
+    `#${index} · ${r.signature}` + (r.distinct ? t("js.raceDistinctSuffix") : "");
   const resp = r.response_base64
     ? bytesToLatin1(b64ToBytes(r.response_base64))
-    : (r.error ? "HATA: " + r.error : "(yanıt yok)");
+    : (r.error ? t("js.errPrefix") + r.error : t("js.noResponse"));
   const hex = $("#race-hex").checked;
   const sent = lastRaceData
     ? (hex ? (lastRaceData.sent_request_hex || "") : (lastRaceData.sent_request || ""))
-    : "(yok)";
-  const label = hex ? "GÖNDERİLEN İSTEK (hex, tüm bağlantılarda aynı)"
-                    : "GÖNDERİLEN İSTEK (tüm bağlantılarda aynı)";
+    : t("js.noneParen");
+  const label = hex ? t("js.raceSentHex") : t("js.raceSent");
   $("#race-detail").textContent =
-    "=== " + label + " ===\n" + sent + "\n\n=== YANIT ===\n" + resp;
+    "=== " + label + " ===\n" + sent + "\n\n=== " + t("js.respSection") + " ===\n" + resp;
   for (const tr of $("#race-tbody").querySelectorAll("tr")) {
     tr.classList.toggle("sel", tr.firstElementChild && tr.firstElementChild.textContent === String(index));
   }
@@ -1148,9 +1156,7 @@ $("#race-sync").onchange = () => {
   const sp = $("#race-sync").value === "single-packet";
   if (sp) { $("#race-tls").checked = true; }   // h2 ALPN → TLS zorunlu
   $("#race-tls").disabled = sp;
-  $("#race-state").textContent = sp
-    ? "single-packet: tek TLS bağlantısı (h2), tüm END_STREAM frame'leri tek pakette"
-    : "";
+  $("#race-state").textContent = sp ? t("js.raceSpState") : "";
 };
 
 // ---- WebSocket ---------------------------------------------------------
@@ -1163,7 +1169,7 @@ async function wsLoadFlows() {
   const ul = $("#ws-conn-list");
   ul.innerHTML = "";
   if (!data.flows.length) {
-    ul.innerHTML = `<li class="hint" style="cursor:default;border:none">Henüz WebSocket bağlantısı yakalanmadı.</li>`;
+    ul.innerHTML = `<li class="hint" style="cursor:default;border:none">${escapeHtml(t("js.wsNone"))}</li>`;
   }
   for (const f of data.flows) {
     const li = document.createElement("li");
@@ -1173,7 +1179,7 @@ async function wsLoadFlows() {
       <div class="host">${escapeHtml(f.host)}:${f.port}${escapeHtml(f.path)}</div>
       <div class="meta">
         <span class="ws-state-${f.state}">●</span> ${f.state} ·
-        ${f.msg_count} mesaj · ${when}
+        ${escapeHtml(t("js.wsMsgCount", { n: f.msg_count }))} · ${when}
       </div>`;
     li.onclick = () => wsSelect(f.flow_id, f.state);
     ul.appendChild(li);
@@ -1187,7 +1193,7 @@ function wsSelect(flowId, state) {
   if (changed) { ws.lastId = 0; $("#ws-messages").innerHTML = ""; }
   $("#ws-send").disabled = state !== "open";
   $("#ws-msg-head").textContent =
-    `${flowId.slice(0, 8)}… · ${state}` + (state === "open" ? " · enjeksiyon aktif" : " · bağlantı kapalı");
+    `${flowId.slice(0, 8)}… · ${state}` + (state === "open" ? t("js.wsInjectActive") : t("js.wsConnClosed"));
   wsLoadFlows();
   wsLoadMessages(true);
 }
@@ -1206,11 +1212,11 @@ async function wsLoadMessages(reset) {
     div.className = "ws-msg " + m.direction + (m.injected ? " injected" : "");
     const arrow = m.direction === "c2s" ? "▲" : "▼";
     const when = new Date(m.created_at * 1000).toLocaleTimeString();
-    const body = m.type === "text" && m.content.text != null
+    const bodyTxt = m.type === "text" && m.content.text != null
       ? m.content.text
-      : `[${m.type}, ${m.content.size} bayt] ${m.content.base64 || ""}`;
-    div.innerHTML = `<span class="dir">${arrow}</span>${escapeHtml(body)}` +
-      `<span class="t">${when}</span>` + (m.injected ? `<span class="inj">⟵ enjekte</span>` : "");
+      : t("js.wsBinary", { type: m.type, size: m.content.size, b64: m.content.base64 || "" });
+    div.innerHTML = `<span class="dir">${arrow}</span>${escapeHtml(bodyTxt)}` +
+      `<span class="t">${when}</span>` + (m.injected ? `<span class="inj">${escapeHtml(t("js.wsInjected"))}</span>` : "");
     box.appendChild(div);
   }
   if (atBottom) box.scrollTop = box.scrollHeight;
@@ -1222,16 +1228,16 @@ $("#ws-send").onclick = async () => {
   if (!ws.flowId) return;
   const type = $("#ws-type").value;
   const payload = { flow_id: ws.flowId, direction: $("#ws-dir").value, type };
-  const body = $("#ws-inject-body").value;
-  if (type === "binary") payload.content_base64 = body.trim();
-  else payload.content_text = body;
-  $("#ws-inject-state").textContent = "gönderiliyor…";
+  const bodyVal = $("#ws-inject-body").value;
+  if (type === "binary") payload.content_base64 = bodyVal.trim();
+  else payload.content_text = bodyVal;
+  $("#ws-inject-state").textContent = t("js.sending");
   const res = await fetch("/api/ws/inject", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   const data = await res.json();
-  if (!res.ok) { $("#ws-inject-state").textContent = "⚠ " + (data.detail || "hata"); return; }
+  if (!res.ok) { $("#ws-inject-state").textContent = "⚠ " + (data.detail || t("js.errorWord")); return; }
   // enjeksiyon durumunu yokla
   const id = data.inject_id;
   let tries = 0;
@@ -1239,7 +1245,12 @@ $("#ws-send").onclick = async () => {
     const r = await fetch("/api/ws/inject/" + id);
     const s = await r.json();
     if (s.status === "pending" && tries++ < 15) { setTimeout(check, 300); return; }
-    const map = { done: "✓ gönderildi", gone: "⚠ bağlantı kapalı", error: "⚠ " + (s.error || "hata"), pending: "zaman aşımı" };
+    const map = {
+      done: t("js.wsSent"),
+      gone: t("js.wsGone"),
+      error: "⚠ " + (s.error || t("js.errorWord")),
+      pending: t("js.wsTimeout"),
+    };
     $("#ws-inject-state").textContent = map[s.status] || s.status;
     wsLoadMessages(false);
   };
@@ -1265,6 +1276,21 @@ async function copyText(text) {
     ta.remove();
   }
 }
+
+// ---- Dil değişimi: görünür dinamik parçaları yeniden render et ---------
+window.onLangChange = () => {
+  rawHint();
+  renderRepTabs();
+  if (current) { renderDetail(current); renderInspector(current); }
+  if (intr.results && intr.results.length) renderIntrTable();
+  if (oast.last) applyOastStatus(oast.last);
+  if (lastRawData) renderRawResult(lastRawData);
+  if (lastRaceData) { renderRaceTable(lastRaceData); if (raceSel.idx != null) showRaceDetail(raceSel.idx); }
+  if (ws.flowId && ws.state) {
+    $("#ws-msg-head").textContent =
+      `${ws.flowId.slice(0, 8)}… · ${ws.state}` + (ws.state === "open" ? t("js.wsInjectActive") : t("js.wsConnClosed"));
+  }
+};
 
 // Otomatik yenileme
 setInterval(() => { if ($("#autorefresh").checked) loadFlows(); }, 2000);

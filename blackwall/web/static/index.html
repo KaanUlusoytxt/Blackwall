@@ -11,18 +11,22 @@
   <div id="boot" aria-hidden="true">
     <div class="boot-scan"></div>
     <div class="boot-title">BLACKWALL</div>
-    <div class="boot-sub">// BREACH PROTOCOL</div>
+    <div class="boot-sub" data-i18n="boot.sub">// BREACH PROTOCOL</div>
     <div class="boot-bar"></div>
   </div>
 
   <header class="topbar">
     <div class="brand"><img src="/static/blackwall.svg" alt="" width="32" height="32" style="vertical-align:middle;margin-right:8px;" /> BLACKWALL<span style="color:var(--muted);font-size:10px;letter-spacing:.2em;margin-left:10px;">// BREACH PROTOCOL</span></div>
     <div class="controls">
-      <input id="search" type="search" placeholder="url / host / method filtrele…" />
-      <label class="auto"><input id="autorefresh" type="checkbox" checked /> otomatik yenile</label>
-      <button id="open-browser" title="Proxy'ye ayarlı, sertifikası yüklü geçici tarayıcı aç">🌐 Tarayıcı Aç</button>
-      <button id="refresh">Yenile</button>
-      <button id="clear" class="danger">Temizle</button>
+      <select id="lang-select" title="language / dil">
+        <option value="tr">TR</option>
+        <option value="en">EN</option>
+      </select>
+      <input id="search" type="search" data-i18n-ph="search.ph" placeholder="url / host / method filtrele…" />
+      <label class="auto"><input id="autorefresh" type="checkbox" checked /> <span data-i18n="topbar.autorefresh">otomatik yenile</span></label>
+      <button id="open-browser" data-i18n="topbar.openBrowser" data-i18n-title="topbar.openBrowser.title" title="Proxy'ye ayarlı, sertifikası yüklü geçici tarayıcı aç">🌐 Tarayıcı Aç</button>
+      <button id="refresh" data-i18n="topbar.refresh">Yenile</button>
+      <button id="clear" class="danger" data-i18n="topbar.clear">Temizle</button>
     </div>
   </header>
 
@@ -31,8 +35,8 @@
       <table id="flows">
         <thead>
           <tr>
-            <th>#</th><th>Zaman</th><th>Kaynak</th><th>Method</th>
-            <th>Host</th><th>Path</th><th>Durum</th><th>Boyut</th><th>ms</th>
+            <th>#</th><th data-i18n="th.time">Zaman</th><th data-i18n="th.source">Kaynak</th><th data-i18n="th.method">Method</th>
+            <th data-i18n="th.host">Host</th><th data-i18n="th.path">Path</th><th data-i18n="th.status">Durum</th><th data-i18n="th.size">Boyut</th><th data-i18n="th.ms">ms</th>
           </tr>
         </thead>
         <tbody id="flows-body"></tbody>
@@ -41,8 +45,8 @@
 
     <section class="detail">
       <div class="tabs">
-        <button class="tab active" data-pane="req">İstek</button>
-        <button class="tab" data-pane="resp">Yanıt</button>
+        <button class="tab active" data-pane="req" data-i18n="tab.req">İstek</button>
+        <button class="tab" data-pane="resp" data-i18n="tab.resp">Yanıt</button>
         <button class="tab" data-pane="repeater">Repeater</button>
         <button class="tab" data-pane="inspector">Inspector</button>
         <button class="tab" data-pane="intruder">Intruder</button>
@@ -56,9 +60,9 @@
 
       <div class="pane active" id="pane-req">
         <div class="rep-row">
-          <button id="req-to-repeater">→ Repeater (yeni sekme)</button>
+          <button id="req-to-repeater" data-i18n="req.toRepeater">→ Repeater (yeni sekme)</button>
         </div>
-        <pre id="req-view" class="raw">Soldan bir akış seçin.</pre>
+        <pre id="req-view" class="raw" data-i18n="req.empty">Soldan bir akış seçin.</pre>
       </div>
 
       <div class="pane" id="pane-resp">
@@ -73,31 +77,31 @@
             <option>PATCH</option><option>DELETE</option><option>HEAD</option>
             <option>OPTIONS</option>
           </select>
-          <input id="rep-url" type="text" placeholder="https://hedef/path" />
-          <button id="rep-send">Gönder</button>
+          <input id="rep-url" type="text" data-i18n-ph="rep.urlPh" placeholder="https://hedef/path" />
+          <button id="rep-send" data-i18n="rep.send">Gönder</button>
         </div>
         <div class="rep-opts">
-          <label><input id="rep-verify" type="checkbox" /> TLS doğrula</label>
-          <label><input id="rep-follow" type="checkbox" /> yönlendirme izle</label>
+          <label><input id="rep-verify" type="checkbox" /> <span data-i18n="rep.verify">TLS doğrula</span></label>
+          <label><input id="rep-follow" type="checkbox" /> <span data-i18n="rep.follow">yönlendirme izle</span></label>
         </div>
-        <label class="lbl">Başlıklar (her satır <code>İsim: değer</code>)</label>
+        <label class="lbl" data-i18n-html="rep.headers">Başlıklar (her satır <code>İsim: değer</code>)</label>
         <textarea id="rep-headers" spellcheck="false" rows="8"></textarea>
-        <label class="lbl">Gövde</label>
+        <label class="lbl" data-i18n="rep.body">Gövde</label>
         <textarea id="rep-body" spellcheck="false" rows="8"></textarea>
-        <label class="lbl">Yanıt</label>
+        <label class="lbl" data-i18n="rep.resp">Yanıt</label>
         <pre id="rep-resp" class="raw"></pre>
       </div>
 
       <!-- Inspector -->
       <div class="pane" id="pane-inspector">
-        <div id="insp-empty" class="muted-note">History ya da Repeater'dan bir istek seçin.</div>
+        <div id="insp-empty" class="muted-note" data-i18n="insp.empty">History ya da Repeater'dan bir istek seçin.</div>
         <div id="insp-content" hidden>
           <div class="insp-head" id="insp-line"></div>
-          <h4>Query parametreleri</h4>
+          <h4 data-i18n="insp.query">Query parametreleri</h4>
           <table class="kv" id="insp-query"><tbody></tbody></table>
-          <h4>Cookie'ler</h4>
+          <h4 data-i18n="insp.cookies">Cookie'ler</h4>
           <table class="kv" id="insp-cookies"><tbody></tbody></table>
-          <h4>İstek başlıkları</h4>
+          <h4 data-i18n="insp.headers">İstek başlıkları</h4>
           <table class="kv" id="insp-headers"><tbody></tbody></table>
         </div>
       </div>
@@ -105,105 +109,105 @@
       <!-- Intruder -->
       <div class="pane" id="pane-intruder">
         <div class="rep-row">
-          <button id="intr-load">⟵ Seçili isteği yükle</button>
-          <label class="inline">hedef <input id="intr-target" type="text" placeholder="https://host:port (yüklenince otomatik)" style="width:260px" /></label>
-          <span class="hint">Payload konumlarını <code>§...§</code> ile işaretleyin · <button id="intr-mark" class="mini">seçimi işaretle</button></span>
+          <button id="intr-load" data-i18n="intr.load">⟵ Seçili isteği yükle</button>
+          <label class="inline"><span data-i18n="intr.target">hedef</span> <input id="intr-target" type="text" data-i18n-ph="intr.targetPh" placeholder="https://host:port (yüklenince otomatik)" style="width:260px" /></label>
+          <span class="hint"><span data-i18n-html="intr.markHint">Payload konumlarını <code>§...§</code> ile işaretleyin ·</span> <button id="intr-mark" class="mini" data-i18n="intr.mark">seçimi işaretle</button></span>
         </div>
-        <label class="lbl">Ham istek</label>
+        <label class="lbl" data-i18n="intr.rawReq">Ham istek</label>
         <textarea id="intr-req" rows="9" spellcheck="false" placeholder="GET /search?q=§test§ HTTP/1.1&#10;Host: example.com&#10;&#10;"></textarea>
 
         <div class="rep-row">
-          <label class="inline">Saldırı:
+          <label class="inline"><span data-i18n="intr.attack">Saldırı:</span>
             <select id="intr-attack">
-              <option value="sniper">sniper (tek liste, her konuma sırayla)</option>
-              <option value="pitchfork">pitchfork (konum başına liste, eşli)</option>
-              <option value="cluster">cluster bomb (tüm kombinasyonlar)</option>
+              <option value="sniper" data-i18n="intr.attack.sniper">sniper (tek liste, her konuma sırayla)</option>
+              <option value="pitchfork" data-i18n="intr.attack.pitchfork">pitchfork (konum başına liste, eşli)</option>
+              <option value="cluster" data-i18n="intr.attack.cluster">cluster bomb (tüm kombinasyonlar)</option>
             </select>
           </label>
-          <label class="inline">eşzamanlılık <input id="intr-conc" type="number" value="10" min="1" max="100" /></label>
-          <label class="inline">timeout(s) <input id="intr-timeout" type="number" value="15" min="1" /></label>
+          <label class="inline"><span data-i18n="intr.conc">eşzamanlılık</span> <input id="intr-conc" type="number" value="10" min="1" max="100" /></label>
+          <label class="inline"><span data-i18n="intr.timeout">timeout(s)</span> <input id="intr-timeout" type="number" value="15" min="1" /></label>
         </div>
         <div class="rep-opts">
-          <label><input id="intr-verify" type="checkbox" /> TLS doğrula</label>
-          <label><input id="intr-follow" type="checkbox" /> yönlendirme izle</label>
-          <span class="hint">Konum sayısı: <b id="intr-poscount">0</b> · tahmini istek: <b id="intr-estimate">0</b></span>
+          <label><input id="intr-verify" type="checkbox" /> <span data-i18n="rep.verify">TLS doğrula</span></label>
+          <label><input id="intr-follow" type="checkbox" /> <span data-i18n="rep.follow">yönlendirme izle</span></label>
+          <span class="hint"><span data-i18n="intr.posCount">Konum sayısı:</span> <b id="intr-poscount">0</b> · <span data-i18n="intr.estimate">tahmini istek:</span> <b id="intr-estimate">0</b></span>
         </div>
 
-        <label class="lbl">Payload listeleri</label>
+        <label class="lbl" data-i18n="intr.payloadLists">Payload listeleri</label>
         <div id="intr-payloads"></div>
 
-        <label class="lbl">grep-match <span class="hint">(yanıt gövdesinde aranacak metinler — her satır bir sütun)</span></label>
-        <textarea id="intr-grep" rows="3" spellcheck="false" placeholder="ör. Welcome&#10;Invalid password&#10;error"></textarea>
+        <label class="lbl"><span data-i18n="intr.grep">grep-match</span> <span class="hint" data-i18n="intr.grepHint">(yanıt gövdesinde aranacak metinler — her satır bir sütun)</span></label>
+        <textarea id="intr-grep" rows="3" spellcheck="false" data-i18n-ph="intr.grepPh" placeholder="ör. Welcome&#10;Invalid password&#10;error"></textarea>
 
         <div class="rep-row">
-          <button id="intr-start">Saldırıyı başlat</button>
-          <button id="intr-cancel" class="danger" disabled>İptal</button>
+          <button id="intr-start" data-i18n="intr.start">Saldırıyı başlat</button>
+          <button id="intr-cancel" class="danger" disabled data-i18n="intr.cancel">İptal</button>
           <span id="intr-progress" class="hint"></span>
         </div>
 
         <div class="intr-filters">
-          <input id="intr-f-status" placeholder="status filtre (ör. 200 veya 2,3)" />
-          <input id="intr-f-min" type="number" placeholder="min uzunluk" />
-          <input id="intr-f-max" type="number" placeholder="max uzunluk" />
-          <label class="inline"><input id="intr-f-err" type="checkbox" /> sadece hatalılar</label>
+          <input id="intr-f-status" data-i18n-ph="intr.fStatusPh" placeholder="status filtre (ör. 200 veya 2,3)" />
+          <input id="intr-f-min" type="number" data-i18n-ph="intr.fMinPh" placeholder="min uzunluk" />
+          <input id="intr-f-max" type="number" data-i18n-ph="intr.fMaxPh" placeholder="max uzunluk" />
+          <label class="inline"><input id="intr-f-err" type="checkbox" /> <span data-i18n="intr.fErr">sadece hatalılar</span></label>
           <span id="intr-grep-filters"></span>
         </div>
         <div class="intr-table-wrap">
           <table id="intr-table">
             <thead><tr>
               <th data-sort="index">#</th>
-              <th data-sort="payloads">payload(lar)</th>
+              <th data-sort="payloads" data-i18n="intr.th.payloads">payload(lar)</th>
               <th data-sort="status">status</th>
-              <th data-sort="length">uzunluk</th>
+              <th data-sort="length" data-i18n="intr.th.length">uzunluk</th>
               <th data-sort="duration_ms">ms</th>
-              <th data-sort="error">hata</th>
+              <th data-sort="error" data-i18n="intr.th.error">hata</th>
             </tr></thead>
             <tbody id="intr-tbody"></tbody>
           </table>
         </div>
-        <label class="lbl">Tam yanıt <span id="intr-detail-idx" class="hint"></span></label>
+        <label class="lbl"><span data-i18n="intr.fullResp">Tam yanıt</span> <span id="intr-detail-idx" class="hint"></span></label>
         <pre id="intr-detail" class="raw"></pre>
       </div>
 
       <!-- Raw -->
       <div class="pane" id="pane-raw">
         <div class="rep-row">
-          <label class="inline">host <input id="raw-host" type="text" placeholder="example.com veya IP" /></label>
-          <label class="inline">port <input id="raw-port" type="number" value="80" min="1" max="65535" /></label>
+          <label class="inline"><span data-i18n="raw.host">host</span> <input id="raw-host" type="text" data-i18n-ph="raw.hostPh" placeholder="example.com veya IP" /></label>
+          <label class="inline"><span data-i18n="raw.port">port</span> <input id="raw-port" type="number" value="80" min="1" max="65535" /></label>
           <label class="inline"><input id="raw-tls" type="checkbox" /> TLS</label>
-          <label class="inline">SNI <input id="raw-sni" type="text" placeholder="(host)" /></label>
-          <label class="inline">HTTP sürümü
+          <label class="inline"><span data-i18n="raw.sni">SNI</span> <input id="raw-sni" type="text" data-i18n-ph="raw.sniPh" placeholder="(host)" /></label>
+          <label class="inline"><span data-i18n="raw.httpver">HTTP sürümü</span>
             <select id="raw-httpver">
-              <option value="1.1">1.1 (ham socket)</option>
-              <option value="2">2 (h2)</option>
+              <option value="1.1" data-i18n="raw.ver11">1.1 (ham socket)</option>
+              <option value="2" data-i18n="raw.ver2">2 (h2)</option>
             </select>
           </label>
-          <label class="inline" id="raw-malformed-wrap" style="display:none"><input id="raw-malformed" type="checkbox" /> malformed (h2 smuggling)</label>
-          <label class="inline" id="raw-smuggle-wrap" style="display:none"><input id="raw-smuggle" type="checkbox" /> smuggle + takip isteği</label>
-          <label class="inline" id="raw-rounds-wrap" style="display:none">tur <input id="raw-rounds" type="number" value="5" min="1" max="100" style="width:60px" /></label>
+          <label class="inline" id="raw-malformed-wrap" style="display:none"><input id="raw-malformed" type="checkbox" /> <span data-i18n="raw.malformed">malformed (h2 smuggling)</span></label>
+          <label class="inline" id="raw-smuggle-wrap" style="display:none"><input id="raw-smuggle" type="checkbox" /> <span data-i18n="raw.smuggle">smuggle + takip isteği</span></label>
+          <label class="inline" id="raw-rounds-wrap" style="display:none"><span data-i18n="raw.rounds">tur</span> <input id="raw-rounds" type="number" value="5" min="1" max="100" style="width:60px" /></label>
         </div>
         <div class="rep-row">
-          <label class="inline">satır sonu
+          <label class="inline"><span data-i18n="raw.mode">satır sonu</span>
             <select id="raw-mode">
-              <option value="crlf">CRLF (satır sonlarını \r\n yap)</option>
-              <option value="lf">LF (yazıldığı gibi)</option>
-              <option value="escape">escape (\r \n \t \0 \xHH)</option>
+              <option value="crlf" data-i18n="raw.mode.crlf">CRLF (satır sonlarını \r\n yap)</option>
+              <option value="lf" data-i18n="raw.mode.lf">LF (yazıldığı gibi)</option>
+              <option value="escape" data-i18n="raw.mode.escape">escape (\r \n \t \0 \xHH)</option>
             </select>
           </label>
-          <label class="inline">timeout(s) <input id="raw-timeout" type="number" value="10" min="1" step="0.5" /></label>
-          <label class="inline">read-idle(s) <input id="raw-idle" type="number" value="1" min="0.1" step="0.1" /></label>
-          <label class="inline">2. istekten önce gecikme(ms) <input id="raw-delay" type="number" value="0" min="0" /></label>
+          <label class="inline"><span data-i18n="raw.timeout">timeout(s)</span> <input id="raw-timeout" type="number" value="10" min="1" step="0.5" /></label>
+          <label class="inline"><span data-i18n="raw.idle">read-idle(s)</span> <input id="raw-idle" type="number" value="1" min="0.1" step="0.1" /></label>
+          <label class="inline"><span data-i18n="raw.delay">2. istekten önce gecikme(ms)</span> <input id="raw-delay" type="number" value="0" min="0" /></label>
         </div>
         <span class="hint" id="raw-mode-hint"></span>
 
-        <label class="lbl">İstek 1</label>
+        <label class="lbl" data-i18n="raw.req1">İstek 1</label>
         <textarea id="raw-req1" class="raw-ta" rows="8" spellcheck="false" placeholder="GET / HTTP/1.1&#10;Host: example.com&#10;&#10;"></textarea>
-        <label class="lbl">İstek 2 <span class="hint">(opsiyonel — aynı socket'te sıralı gönderilir)</span></label>
-        <textarea id="raw-req2" class="raw-ta" rows="6" spellcheck="false" placeholder="(boşsa tek istek gönderilir)"></textarea>
+        <label class="lbl"><span data-i18n="raw.req2">İstek 2</span> <span class="hint" data-i18n="raw.req2Hint">(opsiyonel — aynı socket'te sıralı gönderilir)</span></label>
+        <textarea id="raw-req2" class="raw-ta" rows="6" spellcheck="false" data-i18n-ph="raw.req2Ph" placeholder="(boşsa tek istek gönderilir)"></textarea>
 
         <div class="rep-row">
-          <button id="raw-send">Gönder</button>
-          <label class="inline"><input id="raw-hex" type="checkbox" /> hex dump</label>
+          <button id="raw-send" data-i18n="raw.send">Gönder</button>
+          <label class="inline"><input id="raw-hex" type="checkbox" /> <span data-i18n="raw.hex">hex dump</span></label>
           <span id="raw-state" class="hint"></span>
         </div>
         <div id="raw-results"></div>
@@ -212,41 +216,41 @@
       <!-- Race -->
       <div class="pane" id="pane-race">
         <div class="rep-row">
-          <button id="race-load">⟵ Seçili isteği yükle</button>
-          <label class="inline">host <input id="race-host" type="text" placeholder="(yüklenince otomatik)" /></label>
-          <label class="inline">port <input id="race-port" type="number" value="443" min="1" max="65535" /></label>
+          <button id="race-load" data-i18n="intr.load">⟵ Seçili isteği yükle</button>
+          <label class="inline"><span data-i18n="race.host">host</span> <input id="race-host" type="text" data-i18n-ph="race.hostPh" placeholder="(yüklenince otomatik)" /></label>
+          <label class="inline"><span data-i18n="race.port">port</span> <input id="race-port" type="number" value="443" min="1" max="65535" /></label>
           <label class="inline"><input id="race-tls" type="checkbox" checked /> TLS</label>
-          <label class="inline">SNI <input id="race-sni" type="text" placeholder="(host)" /></label>
+          <label class="inline"><span data-i18n="race.sni">SNI</span> <input id="race-sni" type="text" data-i18n-ph="race.sniPh" placeholder="(host)" /></label>
         </div>
         <div class="rep-row">
-          <label class="inline">sync modu
+          <label class="inline"><span data-i18n="race.sync">sync modu</span>
             <select id="race-sync">
-              <option value="last-byte">last-byte (HTTP/1.1)</option>
-              <option value="single-packet">single-packet (HTTP/2)</option>
+              <option value="last-byte" data-i18n="race.sync.lastByte">last-byte (HTTP/1.1)</option>
+              <option value="single-packet" data-i18n="race.sync.singlePacket">single-packet (HTTP/2)</option>
             </select>
           </label>
-          <label class="inline">N (bağlantı) <input id="race-count" type="number" value="20" min="1" max="255" /></label>
-          <label class="inline">prefix gecikme(ms) <input id="race-prefix" type="number" value="100" min="0" /></label>
-          <label class="inline">timeout(s) <input id="race-timeout" type="number" value="10" min="1" step="0.5" /></label>
-          <label class="inline">read-idle(s) <input id="race-idle" type="number" value="1" min="0.1" step="0.1" /></label>
+          <label class="inline"><span data-i18n="race.count">N (bağlantı)</span> <input id="race-count" type="number" value="20" min="1" max="255" /></label>
+          <label class="inline"><span data-i18n="race.prefix">prefix gecikme(ms)</span> <input id="race-prefix" type="number" value="100" min="0" /></label>
+          <label class="inline"><span data-i18n="race.timeout">timeout(s)</span> <input id="race-timeout" type="number" value="10" min="1" step="0.5" /></label>
+          <label class="inline"><span data-i18n="race.idle">read-idle(s)</span> <input id="race-idle" type="number" value="1" min="0.1" step="0.1" /></label>
         </div>
-        <span class="hint">Last-byte sync: her istek son baytı hariç gönderilir; tüm bağlantılar hazır olunca son baytlar aynı anda basılır. İstek canonical HTTP/1.1 olarak kurulur, Content-Length gövdeye göre hesaplanır; header/body birebir korunur.</span>
-        <label class="lbl">Ham istek</label>
-        <textarea id="race-req" class="raw-ta" rows="8" spellcheck="false" placeholder="'Seçili isteği yükle' ile History'den bir isteği alın (tüm header'lar + body korunur)"></textarea>
+        <span class="hint" data-i18n="race.hintLong">Last-byte sync: her istek son baytı hariç gönderilir; tüm bağlantılar hazır olunca son baytlar aynı anda basılır. İstek canonical HTTP/1.1 olarak kurulur, Content-Length gövdeye göre hesaplanır; header/body birebir korunur.</span>
+        <label class="lbl" data-i18n="race.rawReq">Ham istek</label>
+        <textarea id="race-req" class="raw-ta" rows="8" spellcheck="false" data-i18n-ph="race.reqPh" placeholder="'Seçili isteği yükle' ile History'den bir isteği alın (tüm header'lar + body korunur)"></textarea>
         <div class="rep-row">
-          <button id="race-run">Saldır (N kez)</button>
-          <label class="inline"><input id="race-hex" type="checkbox" /> gönderilen isteği hex göster</label>
+          <button id="race-run" data-i18n="race.run">Saldır (N kez)</button>
+          <label class="inline"><input id="race-hex" type="checkbox" /> <span data-i18n="race.hex">gönderilen isteği hex göster</span></label>
           <span id="race-state" class="hint"></span>
         </div>
         <div class="intr-table-wrap">
           <table id="race-table">
             <thead><tr>
-              <th>#</th><th>status</th><th>uzunluk</th><th>son bayt @ms</th><th>varış @ms</th><th>imza</th><th>hata</th>
+              <th>#</th><th>status</th><th data-i18n="race.th.length">uzunluk</th><th data-i18n="race.th.lastByte">son bayt @ms</th><th data-i18n="race.th.arrival">varış @ms</th><th data-i18n="race.th.signature">imza</th><th data-i18n="race.th.error">hata</th>
             </tr></thead>
             <tbody id="race-tbody"></tbody>
           </table>
         </div>
-        <label class="lbl">Tam yanıt <span id="race-detail-idx" class="hint"></span></label>
+        <label class="lbl"><span data-i18n="race.fullResp">Tam yanıt</span> <span id="race-detail-idx" class="hint"></span></label>
         <pre id="race-detail" class="raw"></pre>
       </div>
 
@@ -254,11 +258,11 @@
       <div class="pane" id="pane-websocket">
         <div class="ws-layout">
           <div class="ws-conns">
-            <div class="lbl">Bağlantılar <button id="ws-refresh" class="mini">yenile</button></div>
+            <div class="lbl"><span data-i18n="ws.conns">Bağlantılar</span> <button id="ws-refresh" class="mini" data-i18n="ws.refresh">yenile</button></div>
             <ul id="ws-conn-list"></ul>
           </div>
           <div class="ws-main">
-            <div id="ws-msg-head" class="insp-head">Bir WebSocket bağlantısı seçin.</div>
+            <div id="ws-msg-head" class="insp-head" data-i18n="ws.headEmpty">Bir WebSocket bağlantısı seçin.</div>
             <div class="ws-msg-wrap"><div id="ws-messages"></div></div>
             <div class="ws-inject">
               <div class="rep-row">
@@ -267,10 +271,10 @@
                   <option value="s2c">▼ server → client</option>
                 </select>
                 <select id="ws-type"><option value="text">text</option><option value="binary">binary (base64)</option></select>
-                <button id="ws-send" disabled>Enjekte et</button>
+                <button id="ws-send" disabled data-i18n="ws.send">Enjekte et</button>
                 <span id="ws-inject-state" class="hint"></span>
               </div>
-              <textarea id="ws-inject-body" rows="3" spellcheck="false" placeholder="gönderilecek mesaj"></textarea>
+              <textarea id="ws-inject-body" rows="3" spellcheck="false" data-i18n-ph="ws.injectPh" placeholder="gönderilecek mesaj"></textarea>
             </div>
           </div>
         </div>
@@ -279,35 +283,35 @@
       <!-- OAST -->
       <div class="pane" id="pane-oast">
         <div class="rep-row">
-          <label class="inline">sunucu <input id="oast-server" type="text" value="oast.pro" /></label>
-          <label class="inline">token <input id="oast-token" type="text" placeholder="(public sunucuda boş)" /></label>
-          <button id="oast-start">Başlat</button>
-          <button id="oast-stop" class="danger" disabled>Durdur</button>
+          <label class="inline"><span data-i18n="oast.server">sunucu</span> <input id="oast-server" type="text" value="oast.pro" /></label>
+          <label class="inline"><span data-i18n="oast.token">token</span> <input id="oast-token" type="text" data-i18n-ph="oast.tokenPh" placeholder="(public sunucuda boş)" /></label>
+          <button id="oast-start" data-i18n="oast.start">Başlat</button>
+          <button id="oast-stop" class="danger" disabled data-i18n="oast.stop">Durdur</button>
         </div>
         <div class="rep-row">
-          <button id="oast-gen" disabled>Yeni subdomain üret</button>
-          <button id="oast-pause" disabled>Poll'u duraklat</button>
+          <button id="oast-gen" disabled data-i18n="oast.gen">Yeni subdomain üret</button>
+          <button id="oast-pause" disabled data-i18n="oast.pause">Poll'u duraklat</button>
           <span id="oast-state" class="hint">—</span>
         </div>
-        <label class="lbl">Üretilen subdomainler <span class="hint">(tıkla → kopyala)</span></label>
+        <label class="lbl"><span data-i18n="oast.generated">Üretilen subdomainler</span> <span class="hint" data-i18n="oast.generatedHint">(tıkla → kopyala)</span></label>
         <ul id="oast-urls" class="oast-urls"></ul>
 
-        <label class="lbl">Etkileşimler (<span id="oast-count">0</span>)</label>
+        <label class="lbl"><span data-i18n="oast.interactions">Etkileşimler</span> (<span id="oast-count">0</span>)</label>
         <div class="intr-table-wrap">
           <table id="oast-table">
             <thead><tr>
-              <th>#</th><th>protokol</th><th>tip</th><th>kaynak IP</th><th>zaman</th><th>full-id</th>
+              <th>#</th><th data-i18n="oast.th.protocol">protokol</th><th data-i18n="oast.th.type">tip</th><th data-i18n="oast.th.srcip">kaynak IP</th><th data-i18n="oast.th.time">zaman</th><th>full-id</th>
             </tr></thead>
             <tbody id="oast-tbody"></tbody>
           </table>
         </div>
-        <label class="lbl">Detay <span id="oast-detail-idx" class="hint"></span></label>
+        <label class="lbl"><span data-i18n="oast.detail">Detay</span> <span id="oast-detail-idx" class="hint"></span></label>
         <pre id="oast-detail" class="raw"></pre>
       </div>
 
       <!-- Decoder -->
       <div class="pane" id="pane-decoder">
-        <label class="lbl">Girdi</label>
+        <label class="lbl" data-i18n="dec.input">Girdi</label>
         <textarea id="dec-input" rows="4" spellcheck="false"></textarea>
         <div class="dec-add">
           <select id="dec-op">
@@ -328,8 +332,8 @@
             <optgroup label="Hex / ASCII">
               <option value="hex-encode">hex encode</option>
               <option value="hex-decode">hex decode</option>
-              <option value="ascii-encode">ascii (ondalık) encode</option>
-              <option value="ascii-decode">ascii (ondalık) decode</option>
+              <option value="ascii-encode" data-i18n="dec.asciiEnc">ascii (ondalık) encode</option>
+              <option value="ascii-decode" data-i18n="dec.asciiDec">ascii (ondalık) decode</option>
             </optgroup>
             <optgroup label="Hash">
               <option value="md5">md5</option>
@@ -337,11 +341,11 @@
               <option value="sha256">sha256</option>
             </optgroup>
           </select>
-          <button id="dec-add">+ katman ekle</button>
-          <button id="dec-clear" class="danger">katmanları temizle</button>
+          <button id="dec-add" data-i18n="dec.add">+ katman ekle</button>
+          <button id="dec-clear" class="danger" data-i18n="dec.clear">katmanları temizle</button>
         </div>
         <ol id="dec-pipeline" class="pipeline"></ol>
-        <label class="lbl">Sonuç <button id="dec-copy" class="mini">kopyala</button></label>
+        <label class="lbl"><span data-i18n="dec.result">Sonuç</span> <button id="dec-copy" class="mini" data-i18n="dec.copy">kopyala</button></label>
         <pre id="dec-result" class="raw"></pre>
       </div>
 
@@ -350,23 +354,24 @@
         <label class="lbl">Token</label>
         <textarea id="jwt-token" rows="3" spellcheck="false" placeholder="xxxxx.yyyyy.zzzzz"></textarea>
         <div class="rep-row">
-          <button id="jwt-decode">Çöz</button>
+          <button id="jwt-decode" data-i18n="jwt.decode">Çöz</button>
         </div>
         <label class="lbl">Header</label>
         <textarea id="jwt-header" rows="4" spellcheck="false">{"alg":"HS256","typ":"JWT"}</textarea>
         <label class="lbl">Payload</label>
         <textarea id="jwt-payload" rows="6" spellcheck="false">{}</textarea>
         <div class="rep-row jwt-sign">
-          <button id="jwt-none">alg:none olarak üret</button>
+          <button id="jwt-none" data-i18n="jwt.none">alg:none olarak üret</button>
           <input id="jwt-secret" type="text" placeholder="HS256 secret" />
-          <button id="jwt-hs256">HS256 imzala</button>
+          <button id="jwt-hs256" data-i18n="jwt.hs256">HS256 imzala</button>
         </div>
-        <label class="lbl">Çıkan token <button id="jwt-copy" class="mini">kopyala</button></label>
+        <label class="lbl"><span data-i18n="jwt.out">Çıkan token</span> <button id="jwt-copy" class="mini" data-i18n="jwt.copy">kopyala</button></label>
         <pre id="jwt-out" class="raw"></pre>
       </div>
     </section>
   </main>
 
+  <script src="/static/i18n.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
