@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" rx="20" fill="#0a0a0a"/>
+  <rect x="14" y="14" width="228" height="228" rx="12" fill="none" stroke="#cc0000" stroke-width="2" opacity="0.5"/>
+  <!-- HUD köşe işaretleri -->
+  <path d="M28 52 V28 H52" fill="none" stroke="#ff2a2a" stroke-width="4"/>
+  <path d="M204 28 H228 V52" fill="none" stroke="#ff2a2a" stroke-width="4"/>
+  <path d="M28 204 V228 H52" fill="none" stroke="#ff2a2a" stroke-width="4"/>
+  <path d="M228 204 V228 H204" fill="none" stroke="#ff2a2a" stroke-width="4"/>
+  <!-- Blackwall bariyeri: dikey kırmızı çubuklar -->
+  <g fill="#ff2a2a">
+    <rect x="72"  y="80" width="14" height="96" opacity="0.95"/>
+    <rect x="98"  y="68" width="14" height="120" opacity="0.8"/>
+    <rect x="124" y="84" width="14" height="88" opacity="1"/>
+    <rect x="150" y="68" width="14" height="120" opacity="0.8"/>
+    <rect x="176" y="80" width="14" height="96" opacity="0.95"/>
+  </g>
+  <!-- tarama çizgisi -->
+  <rect x="56" y="124" width="144" height="3" fill="#ffffff" opacity="0.6"/>
+</svg>
