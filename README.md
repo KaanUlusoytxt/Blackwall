@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="assets/intro/index.html"><img src="assets/intro/blackwall-intro.gif" alt="Blackwall — ASCII intro" width="820" /></a>
+</p>
+
 <div align="center">
   <img src="blackwall/web/static/blackwall.svg" width="96" height="96" alt="Blackwall logo" />
 
@@ -15,10 +19,6 @@ Blackwall captures HTTP(S) and WebSocket traffic through an embedded [mitmproxy]
 It runs either as a **desktop app** (its own window via PyWebView) or **headless** in your browser.
 
 > ⚠️ Blackwall sends raw, sometimes malformed bytes on purpose (request smuggling, HTTP/2 frame injection, race salvos). Use it **only** against systems you own or are explicitly authorized to test. See [Legal](#legal--responsible-use).
-
-<p align="center">
-  <img src="assets/intro/blackwall-intro.gif" alt="Blackwall intro animation" width="640" />
-</p>
 
 <p align="center">
   <img src="docs/screenshot.png" alt="Blackwall UI" width="900" />
