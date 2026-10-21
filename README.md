@@ -1,7 +1,3 @@
-<p align="center">
-  <a href="assets/intro/index.html"><img src="assets/intro/blackwall-intro.gif" alt="Blackwall — ASCII intro" width="820" /></a>
-</p>
-
 <div align="center">
   <img src="blackwall/web/static/blackwall.svg" width="96" height="96" alt="Blackwall logo" />
 
