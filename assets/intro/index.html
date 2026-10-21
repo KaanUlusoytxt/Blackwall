@@ -90,13 +90,13 @@ function vnoise(x,y){const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi;
   return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;}
 
 /* ---------- palette: hue x level buckets ---------- */
-const HUES=[ // 0 phosphor, 1 ice, 2 wall red, 3 hot
-  [[24,28,36],[232,236,242]],
-  [[5,36,42],[150,255,246]],
-  [[46,2,10],[255,44,66]],
-  [[255,86,108],[255,242,244]]];
+const HUES=[ // 0 phosphor, 1 ice, 2 wall red, 3 hot — vivid, saturated endpoints
+  [[22,34,42],[214,240,250]],
+  [[0,66,72],[26,255,236]],
+  [[54,0,12],[255,20,58]],
+  [[255,104,120],[255,250,250]]];
 const COL=[];
-for(let h=0;h<4;h++)for(let l=0;l<8;l++){const k=Math.pow(l/7,1.15),[a,b]=HUES[h];
+for(let h=0;h<4;h++)for(let l=0;l<8;l++){const k=Math.pow(l/7,0.82),[a,b]=HUES[h];
   COL[h*8+l]=`rgb(${Math.round(a[0]+(b[0]-a[0])*k)},${Math.round(a[1]+(b[1]-a[1])*k)},${Math.round(a[2]+(b[2]-a[2])*k)})`;}
 
 const RAMP=" .'`:-~=+*xo#%@", RL=RAMP.length;
