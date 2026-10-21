@@ -17,6 +17,10 @@ It runs either as a **desktop app** (its own window via PyWebView) or **headless
 > ⚠️ Blackwall sends raw, sometimes malformed bytes on purpose (request smuggling, HTTP/2 frame injection, race salvos). Use it **only** against systems you own or are explicitly authorized to test. See [Legal](#legal--responsible-use).
 
 <p align="center">
+  <img src="assets/intro/blackwall-intro.gif" alt="Blackwall intro animation" width="640" />
+</p>
+
+<p align="center">
   <img src="docs/screenshot.png" alt="Blackwall UI" width="900" />
 </p>
 
