@@ -79,7 +79,9 @@
           </select>
           <input id="rep-url" type="text" data-i18n-ph="rep.urlPh" placeholder="https://hedef/path" />
           <button id="rep-send" data-i18n="rep.send">Gönder</button>
+          <button id="rep-oob" class="mini" data-i18n="rep.oob" data-i18n-title="rep.oobTitle" title="OOB payload üret ve imlece ekle">OOB payload</button>
         </div>
+        <span id="rep-oob-state" class="hint"></span>
         <div class="rep-opts">
           <label><input id="rep-verify" type="checkbox" /> <span data-i18n="rep.verify">TLS doğrula</span></label>
           <label><input id="rep-follow" type="checkbox" /> <span data-i18n="rep.follow">yönlendirme izle</span></label>
@@ -283,6 +285,12 @@
       <!-- OAST -->
       <div class="pane" id="pane-oast">
         <div class="rep-row">
+          <label class="inline"><span data-i18n="oast.backend">mod</span>
+            <select id="oast-backend">
+              <option value="interactsh">interactsh</option>
+              <option value="collaborator">Collaborator (oastify.com)</option>
+            </select>
+          </label>
           <label class="inline"><span data-i18n="oast.server">sunucu</span> <input id="oast-server" type="text" value="oast.pro" /></label>
           <label class="inline"><span data-i18n="oast.token">token</span> <input id="oast-token" type="text" data-i18n-ph="oast.tokenPh" placeholder="(public sunucuda boş)" /></label>
           <button id="oast-start" data-i18n="oast.start">Başlat</button>
@@ -300,7 +308,7 @@
         <div class="intr-table-wrap">
           <table id="oast-table">
             <thead><tr>
-              <th>#</th><th data-i18n="oast.th.protocol">protokol</th><th data-i18n="oast.th.type">tip</th><th data-i18n="oast.th.srcip">kaynak IP</th><th data-i18n="oast.th.time">zaman</th><th>full-id</th>
+              <th>#</th><th data-i18n="oast.th.protocol">protokol</th><th data-i18n="oast.th.type">tip</th><th data-i18n="oast.th.srcip">kaynak IP</th><th data-i18n="oast.th.time">zaman</th><th data-i18n="oast.th.token">token</th><th data-i18n="oast.th.note">istek</th>
             </tr></thead>
             <tbody id="oast-tbody"></tbody>
           </table>

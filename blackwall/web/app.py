@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from blackwall import browser, db, httpsend, oast, raw, tools
+from blackwall import browser, collaborator, db, httpsend, oast, raw, tools
 
 # Intruder limits
 MAX_REQUESTS = 10_000      # max total requests generated per attack
@@ -31,7 +31,7 @@ MAX_JOBS = 20              # number of jobs kept in memory
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-app = FastAPI(title="Blackwall", version="0.1.0")
+app = FastAPI(title="Blackwall", version="0.2.0")
 
 
 @app.on_event("startup")
@@ -489,6 +489,8 @@ OAST_STATE: dict[str, Any] = {
     "task": None,
     "polling": False,
     "server": None,
+    "backend": "interactsh",   # "interactsh" | "collaborator"
+    "normalize": None,         # the active backend's normalize_interaction fn
     "interval": 6.0,
     "interactions": [],
     "urls": [],
@@ -498,23 +500,66 @@ OAST_STATE: dict[str, Any] = {
 
 
 class OastStart(BaseModel):
+    backend: str = "interactsh"   # "interactsh" (oast.pro …) or "collaborator" (oastify.com)
     server: str = "oast.pro"
     token: str = ""
     interval: float = 6.0
 
 
+class OastGenerate(BaseModel):
+    # Optional note describing the request this payload is injected into, so an
+    # incoming interaction can be attributed back to it (token -> request).
+    note: str = ""
+
+
+def _oast_url_record(client: Any, note: str = "") -> dict:
+    """Build a generated-URL record carrying the note and a hit counter."""
+    url = client.new_url()
+    label = url.split(".", 1)[0]            # the single DNS label that identifies the payload
+    if OAST_STATE["backend"] == "collaborator":
+        # Collaborator: the label is the interaction id; use a short head as token.
+        nonce = label[:13]
+    else:
+        # interactsh: label = correlation_id + nonce; the nonce is the per-URL part.
+        nonce = label[len(client.correlation_id):]
+    return {
+        "url": url,
+        "label": label,
+        "nonce": nonce,
+        "note": (note or "").strip(),
+        "created_at": time.time(),
+        "hits": 0,
+    }
+
+
+def _oast_attribute(full_id: str) -> "tuple[str, str, bool]":
+    """Match an interaction's full-id to a generated URL -> (token, note, matched)."""
+    if full_id:
+        for u in OAST_STATE["urls"]:
+            label = u["label"]
+            if full_id == label or full_id.endswith("." + label) or full_id.endswith(label):
+                u["hits"] += 1
+                return u["nonce"], u["note"], True
+    return "", "", False
+
+
 async def _oast_loop() -> None:
-    client: oast.InteractshClient = OAST_STATE["client"]
+    client = OAST_STATE["client"]
+    normalize = OAST_STATE["normalize"] or oast.normalize_interaction
     while OAST_STATE["polling"]:
         try:
             raws = await asyncio.to_thread(client.poll)
             for raw in raws:
-                n = oast.normalize_interaction(raw)
+                n = normalize(raw)
                 n["index"] = len(OAST_STATE["interactions"])
                 n["received_at"] = time.time()
+                token, note, matched = _oast_attribute(n["full_id"])
+                n["token"] = token
+                n["note"] = note
+                n["matched"] = matched
                 OAST_STATE["interactions"].append(n)
             OAST_STATE["error"] = None
-        except oast.InteractshError as exc:
+        except (oast.InteractshError, collaborator.CollaboratorError) as exc:
             OAST_STATE["error"] = str(exc)
         except Exception as exc:  # keep the loop alive
             OAST_STATE["error"] = f"{type(exc).__name__}: {exc}"
@@ -542,16 +587,24 @@ def _oast_status() -> dict:
             "remote_address": i["remote_address"],
             "timestamp": i["timestamp"],
             "full_id": i["full_id"],
+            "token": i.get("token", ""),
+            "note": i.get("note", ""),
+            "matched": i.get("matched", False),
             "received_at": i["received_at"],
         }
         for i in OAST_STATE["interactions"]
+    ]
+    urls = [
+        {"url": u["url"], "note": u["note"], "hits": u["hits"]}
+        for u in OAST_STATE["urls"]
     ]
     return {
         "active": client is not None,
         "polling": OAST_STATE["polling"],
         "server": OAST_STATE["server"],
+        "backend": OAST_STATE["backend"],
         "correlation_id": client.correlation_id if client else None,
-        "urls": OAST_STATE["urls"],
+        "urls": urls,
         "interactions": summary,
         "count": len(summary),
         "error": OAST_STATE["error"],
@@ -561,32 +614,37 @@ def _oast_status() -> dict:
 @app.post("/api/oast/start")
 async def api_oast_start(cfg: OastStart):
     await _oast_stop_current()
+    backend = cfg.backend if cfg.backend in ("interactsh", "collaborator") else "interactsh"
     OAST_STATE.update(
         client=None, interactions=[], urls=[], error=None,
-        server=cfg.server, interval=max(2.0, cfg.interval),
+        server=cfg.server, backend=backend, interval=max(2.0, cfg.interval),
     )
-    client = oast.InteractshClient(server=cfg.server, token=cfg.token)
+    if backend == "collaborator":
+        client = collaborator.CollaboratorClient(server=cfg.server, token=cfg.token)
+        OAST_STATE["normalize"] = collaborator.normalize_interaction
+    else:
+        client = oast.InteractshClient(server=cfg.server, token=cfg.token)
+        OAST_STATE["normalize"] = oast.normalize_interaction
     try:
         await asyncio.to_thread(client.register)
-    except oast.InteractshError as exc:
+    except (oast.InteractshError, collaborator.CollaboratorError) as exc:
         raise HTTPException(400, str(exc))
     OAST_STATE["client"] = client
     OAST_STATE["started_at"] = time.time()
-    first_url = client.new_url()
-    OAST_STATE["urls"].append(first_url)
+    OAST_STATE["urls"].append(_oast_url_record(client))
     OAST_STATE["polling"] = True
     OAST_STATE["task"] = asyncio.create_task(_oast_loop())
     return _oast_status()
 
 
 @app.post("/api/oast/generate")
-def api_oast_generate():
+def api_oast_generate(cfg: OastGenerate = OastGenerate()):
     client = OAST_STATE["client"]
     if client is None:
         raise HTTPException(400, "Aktif OAST oturumu yok")
-    url = client.new_url()
-    OAST_STATE["urls"].append(url)
-    return {"url": url}
+    rec = _oast_url_record(client, cfg.note)
+    OAST_STATE["urls"].append(rec)
+    return {"url": rec["url"], "note": rec["note"]}
 
 
 @app.post("/api/oast/pause")

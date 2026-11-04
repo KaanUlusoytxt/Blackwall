@@ -25,6 +25,19 @@ from mcp.server.mcpserver import MCPServer
 
 BASE_URL = os.environ.get("BLACKWALL_URL", "http://127.0.0.1:8000").rstrip("/")
 HTTP_TIMEOUT = float(os.environ.get("BLACKWALL_MCP_TIMEOUT", "120"))
+MAX_BODY_CHARS = int(os.environ.get("BLACKWALL_MCP_MAX_BODY_CHARS", "3000"))
+
+
+def _clip(text, limit):
+    """Clip a body to protect the LLM context window. limit<=0 returns it in full."""
+    if text is None:
+        return ""
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return (text[:limit] +
+            f"\n\n...[{len(text) - limit}/{len(text)} chars truncated; "
+            f"increase max_body_chars or use get_flow for the full body]")
+
 
 mcp = MCPServer("blackwall")
 
@@ -144,7 +157,7 @@ def get_history(q: Optional[str] = None, limit: int = 50) -> list[dict]:
 
 
 @mcp.tool()
-def get_flow(flow_id: int) -> dict:
+def get_flow(flow_id: int, max_body_chars: int = MAX_BODY_CHARS) -> dict:
     """Return the FULL request and response of a history entry (by id).
 
     Provided as text: request line + headers + body, and response line + headers +
@@ -163,8 +176,8 @@ def get_flow(flow_id: int) -> dict:
         if not b or b.get("size", 0) == 0:
             return ""
         if b.get("text") is not None:
-            return b["text"]
-        return f"[binary {b.get('size')} bytes, base64]\n{b.get('base64') or ''}"
+            return _clip(b["text"], max_body_chars)
+        return f"[binary {b.get('size')} bytes, base64 omitted]"
 
     req_hdr = "\n".join(f"{k}: {v}" for k, v in f.get("req_headers", []))
     req = f"{f['method']} {f['path']} {f.get('http_version') or 'HTTP/1.1'}\n{req_hdr}\n\n{_body(f.get('req_body'))}"
@@ -188,6 +201,7 @@ def send_request(
     body: Optional[str] = None,
     verify_tls: bool = False,
     follow_redirects: bool = False,
+    max_body_chars: int = MAX_BODY_CHARS,
 ) -> dict:
     """Send a single HTTP request (Blackwall Repeater) and return the response.
 
@@ -224,7 +238,7 @@ def send_request(
         "reason": f.get("reason"),
         "error": f.get("error"),
         "headers": f.get("resp_headers", []),
-        "body": body_obj.get("text") if body_obj.get("text") is not None
+        "body": _clip(body_obj["text"], max_body_chars) if body_obj.get("text") is not None
                 else (f"[binary {body_obj.get('size', 0)} bytes]" if body_obj.get("size") else ""),
     }
 

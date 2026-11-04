@@ -84,6 +84,28 @@ def start_proxy() -> subprocess.Popen:
     )
 
 
+class _ClipboardApi:
+    """Native clipboard for the desktop app, exposed to JS as window.pywebview.api.
+
+    The web Clipboard API (navigator.clipboard) triggers a QtWebEngine feature-
+    permission request that pywebview's Qt backend mishandles and crashes the whole
+    app. So in the desktop window the UI copies via this method instead, which sets
+    the Qt clipboard directly. Headless (browser) mode does not use this.
+    """
+
+    def copy(self, text: str) -> bool:
+        try:
+            from PyQt6.QtWidgets import QApplication
+
+            clipboard = QApplication.clipboard()
+            if clipboard is not None:
+                clipboard.setText("" if text is None else str(text))
+                return True
+        except Exception:
+            pass
+        return False
+
+
 class WebServer:
     """Run uvicorn in a background thread; provides clean shutdown."""
 
@@ -165,6 +187,7 @@ def main() -> int:
         height=900,
         min_size=(900, 600),
         background_color="#0a0a0a",  # avoid a white flash while loading
+        js_api=_ClipboardApi(),      # native copy (avoids a Qt clipboard-permission crash)
     )
 
     window.events.closed += cleanup

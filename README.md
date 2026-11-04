@@ -26,7 +26,9 @@ It runs either as a **desktop app** (its own window via PyWebView) or **headless
 - **Repeater** — edit and resend any request; **tabbed**, each tab keeps its own request/response.
 - **Intruder** — `§marker§` based attacks with **sniper / pitchfork / cluster bomb**, payload lists and generators (number ranges, charsets), concurrency, sortable/filterable results, and **grep-match** (flag responses containing given strings).
 - **Decoder / JWT / Inspector** — multi-layer encode/decode (base64, URL, HTML, hex, ASCII) + MD5/SHA hashing; JWT decode, `alg:none` forge, and local HS256 signing; request Inspector (query params, cookies, headers). All offline.
-- **OAST (self-hosted-capable)** — pure-Python [interactsh](https://github.com/projectdiscovery/interactsh) client (no external binary): registers with an RSA key, polls for DNS/HTTP interactions, decrypts them locally. Point it at the public server or your own interactsh instance.
+- **OAST / out-of-band** — two pure-Python backends (no external binary), selectable in the OAST tab:
+  - **interactsh** — registers with an RSA key, polls for DNS/HTTP interactions, decrypts them locally. Point it at the public server (`oast.pro`, …) or your own interactsh instance.
+  - **Burp Collaborator** — speaks the public [oastify.com](https://oastify.com) protocol: generates `*.oastify.com` payloads and polls for DNS/HTTP(S) interactions. Each generated payload can carry a note so an incoming interaction is attributed back to the request that triggered it; the **Repeater** can inject a fresh OOB payload into a request in one click.
 - **WebSocket capture + injection** — records messages per connection and injects your own messages into a live connection (direction-selectable).
 - **Raw sender** — pure TCP/TLS socket, your bytes untouched (no auto Content-Length/Transfer-Encoding, header order preserved). Supports **HTTP/1.1 and HTTP/2** (including malformed-frame and CRLF-in-header-value for **request smuggling**), request pipelining, and smuggle + follow-up over one connection.
 - **Race** — timing attacks via **last-byte synchronization (HTTP/1.1)** and **single-packet attack (HTTP/2)**; fires N requests in one salvo and highlights race-winner responses.
@@ -137,7 +139,7 @@ All installed from `requirements.txt`. Blackwall itself is MIT-licensed; the lib
 | [cryptography](https://github.com/pyca/cryptography) | RSA/AES for the OAST client | Apache-2.0 / BSD |
 | [pywebview](https://github.com/r0x0r/pywebview) | Desktop window (Qt/QtWebEngine backend) | BSD-3-Clause |
 
-The interactsh protocol is implemented from scratch in pure Python; no ProjectDiscovery binary is bundled.
+The interactsh protocol is implemented from scratch in pure Python; no ProjectDiscovery binary is bundled. The public Burp Collaborator (oastify.com) protocol is closed-source; Blackwall's client was ported from the clean-room, reverse-engineered reference [OAST-Community](https://github.com/Groppoxx/OAST-Community) (MIT) — no Burp Suite code is used.
 
 ## Legal & responsible use
 

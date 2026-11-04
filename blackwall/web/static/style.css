@@ -372,3 +372,9 @@ main::after { bottom: 2px; left: 2px; border-right: none; border-top: none; }
 .detail::before { top: 2px; right: 2px; border-left: none; border-bottom: none; }
 .detail::after { bottom: 2px; right: 2px; border-left: none; border-top: none; }
 .detail { border-right: 2px solid transparent; }
+
+/* OAST table: highlight rows attributed to a generated OOB payload */
+#oast-tbody tr.oast-matched td { border-left: 2px solid var(--ok); }
+#oast-tbody tr.oast-matched td:first-child { color: var(--ok); }
+#oast-table td.p-http { color: var(--warn); }
+#oast-table td.p-dns { color: var(--accent); }

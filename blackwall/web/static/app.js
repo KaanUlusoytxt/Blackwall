@@ -811,16 +811,26 @@ function setOastButtons(active, polling) {
   $("#oast-pause").textContent = polling ? t("oast.pause") : t("oast.resume");
   $("#oast-server").disabled = active;
   $("#oast-token").disabled = active;
+  $("#oast-backend").disabled = active;
 }
+
+// Switch the default server when the OOB backend changes (ignored while active).
+$("#oast-backend").onchange = () => {
+  $("#oast-server").value = $("#oast-backend").value === "collaborator" ? "oastify.com" : "oast.pro";
+};
 
 function renderOastUrls(urls) {
   const ul = $("#oast-urls");
   ul.innerHTML = "";
   for (const u of urls) {
+    // Backwards tolerant: u may be a plain string or a {url, note, hits} record.
+    const url = typeof u === "string" ? u : u.url;
+    const note = typeof u === "string" ? "" : (u.note || "");
+    const hits = typeof u === "string" ? 0 : (u.hits || 0);
     const li = document.createElement("li");
-    li.textContent = u;
+    li.textContent = url + (hits ? ` · ${hits}×` : "") + (note ? ` · ${note}` : "");
     li.onclick = () => {
-      copyText(u);
+      copyText(url);
       const s = document.createElement("span");
       s.className = "copied"; s.textContent = t("js.copied");
       li.appendChild(s);
@@ -837,6 +847,7 @@ function renderOastTable(interactions) {
   for (const it of [...interactions].reverse()) {
     const tr = document.createElement("tr");
     if (it.index === oast.selIdx) tr.classList.add("sel");
+    if (it.matched) tr.classList.add("oast-matched");
     const t2 = it.timestamp ? it.timestamp.replace("T", " ").slice(0, 19) : "";
     tr.innerHTML = `
       <td>${it.index}</td>
@@ -844,7 +855,8 @@ function renderOastTable(interactions) {
       <td>${it.q_type || "—"}</td>
       <td>${escapeHtml(it.remote_address || "—")}</td>
       <td>${escapeHtml(t2)}</td>
-      <td title="${escapeHtml(it.full_id)}">${escapeHtml(it.full_id)}</td>`;
+      <td title="${escapeHtml(it.full_id)}">${escapeHtml(it.token || "—")}</td>
+      <td title="${escapeHtml(it.note || "")}">${escapeHtml(truncate(it.note || "—", 28))}</td>`;
     tr.onclick = () => showOastDetail(it.index);
     tbody.appendChild(tr);
   }
@@ -853,11 +865,12 @@ function renderOastTable(interactions) {
 function applyOastStatus(data) {
   oast.last = data;
   setOastButtons(data.active, data.polling);
+  if (data.backend) $("#oast-backend").value = data.backend;
   renderOastUrls(data.urls || []);
   renderOastTable(data.interactions || []);
   $("#oast-count").textContent = data.count || 0;
   let state = data.active ? (data.polling ? t("js.oastListening") : t("js.oastPaused")) : t("js.oastClosed");
-  if (data.correlation_id) state += ` · id ${data.correlation_id} · ${data.server}`;
+  if (data.correlation_id) state += ` · ${data.backend || "interactsh"} · ${data.server}`;
   if (data.error) state += ` · ⚠ ${data.error}`;
   $("#oast-state").textContent = state;
   oast.lastCount = data.count || 0;
@@ -873,7 +886,7 @@ $("#oast-start").onclick = async () => {
   $("#oast-state").textContent = t("js.oastRegistering");
   const res = await fetch("/api/oast/start", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ server: $("#oast-server").value.trim(), token: $("#oast-token").value.trim() }),
+    body: JSON.stringify({ backend: $("#oast-backend").value, server: $("#oast-server").value.trim(), token: $("#oast-token").value.trim() }),
   });
   const data = await res.json();
   if (!res.ok) { $("#oast-state").textContent = "⚠ " + (data.detail || t("js.startFailed")); $("#oast-start").disabled = false; return; }
@@ -917,6 +930,8 @@ async function showOastDetail(index) {
   let out = t("js.oastDProtocol") + `${d.protocol}\n`;
   if (d.q_type) out += t("js.oastDType") + `${d.q_type}\n`;
   out += t("js.oastDSrcip") + `${d.remote_address}\n` + t("js.oastDTime") + `${d.timestamp}\n` + t("js.oastDFullid") + `${d.full_id}\n`;
+  out += t("js.oastDToken") + `${d.token || "—"}\n` + t("js.oastDMatched") + `${d.matched ? "✓" : "—"}\n`;
+  if (d.note) out += t("js.oastDNote") + `${d.note}\n`;
   out += `\n=== ` + t("js.rawRequestSection") + ` ===\n${d.raw_request || t("js.noneParen")}`;
   if (d.raw_response) out += `\n\n=== ` + t("js.rawResponseSection") + ` ===\n${d.raw_response}`;
   $("#oast-detail").textContent = out;
@@ -924,6 +939,47 @@ async function showOastDetail(index) {
     tr.classList.toggle("sel", tr.firstElementChild && tr.firstElementChild.textContent === String(index));
   }
 }
+
+// Repeater "OOB payload" button: generate an OAST payload URL and inject it into
+// the request at the cursor (the "header inject point"). The proxy/intercept flow
+// is untouched; this only edits the Repeater request text and copies the payload.
+// The OAST session (OAST tab) must be started first.
+let lastRepEditor = null;
+for (const id of ["#rep-headers", "#rep-body"]) {
+  const el = $(id);
+  if (el) el.addEventListener("focus", () => { lastRepEditor = el; });
+}
+
+function insertAtCursor(ta, text) {
+  ta.focus();
+  const start = ta.selectionStart ?? ta.value.length;
+  const end = ta.selectionEnd ?? ta.value.length;
+  ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
+  const pos = start + text.length;
+  ta.selectionStart = ta.selectionEnd = pos;
+}
+
+$("#rep-oob").onclick = async () => {
+  const note = `${$("#rep-method").value} ${$("#rep-url").value.trim()}`.trim();
+  const res = await fetch("/api/oast/generate", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    $("#rep-oob-state").textContent = "⚠ " + t("js.oastNoSession");
+    setTimeout(() => { $("#rep-oob-state").textContent = ""; }, 5000);
+    return;
+  }
+  const target = (lastRepEditor && (lastRepEditor.id === "rep-headers" || lastRepEditor.id === "rep-body"))
+    ? lastRepEditor : $("#rep-headers");
+  insertAtCursor(target, data.url);
+  repSaveActive();
+  copyText(data.url);
+  $("#rep-oob-state").textContent = t("js.oastInserted") + " · " + data.url;
+  setTimeout(() => { $("#rep-oob-state").textContent = ""; }, 4000);
+  if (oast.last) oastStatus();   // refresh the OAST payload list if it is open
+};
 
 // ---- Raw ---------------------------------------------------------------
 function rawHints() {
@@ -1266,15 +1322,24 @@ function stopWsPolling() { if (ws.poll) { clearInterval(ws.poll); ws.poll = null
 
 // ---- Kopyalama ---------------------------------------------------------
 async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    // Fallback when not in a secure context
-    const ta = document.createElement("textarea");
-    ta.value = text; document.body.appendChild(ta); ta.select();
-    try { document.execCommand("copy"); } catch {}
-    ta.remove();
+  // Desktop app (PyWebView): use the native clipboard API. navigator.clipboard
+  // triggers a QtWebEngine permission request that crashes the app, so avoid it here.
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.copy) {
+    try { await window.pywebview.api.copy(text); return; } catch {}
   }
+  // Browser: the async Clipboard API (needs a secure context).
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return; } catch {}
+  }
+  // Last resort: execCommand on a temporary textarea.
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try { document.execCommand("copy"); } catch {}
+  ta.remove();
 }
 
 // ---- Language switch: re-render the visible dynamic parts ---------------
