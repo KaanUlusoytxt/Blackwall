@@ -359,22 +359,74 @@
 
       <!-- JWT -->
       <div class="pane" id="pane-jwt">
-        <label class="lbl">Token</label>
-        <textarea id="jwt-token" rows="3" spellcheck="false" placeholder="xxxxx.yyyyy.zzzzz"></textarea>
-        <div class="rep-row">
-          <button id="jwt-decode" data-i18n="jwt.decode">Çöz</button>
-        </div>
-        <label class="lbl">Header</label>
-        <textarea id="jwt-header" rows="4" spellcheck="false">{"alg":"HS256","typ":"JWT"}</textarea>
-        <label class="lbl">Payload</label>
-        <textarea id="jwt-payload" rows="6" spellcheck="false">{}</textarea>
-        <div class="rep-row jwt-sign">
-          <button id="jwt-none" data-i18n="jwt.none">alg:none olarak üret</button>
-          <input id="jwt-secret" type="text" placeholder="HS256 secret" />
-          <button id="jwt-hs256" data-i18n="jwt.hs256">HS256 imzala</button>
-        </div>
-        <label class="lbl"><span data-i18n="jwt.out">Çıkan token</span> <button id="jwt-copy" class="mini" data-i18n="jwt.copy">kopyala</button></label>
-        <pre id="jwt-out" class="raw"></pre>
+        <details class="jwt-sec" open>
+          <summary data-i18n="jwt.secDecode">Decode & imzala (HS256 / none)</summary>
+          <div class="jwt-sec-body">
+            <label class="lbl">Token</label>
+            <textarea id="jwt-token" rows="3" spellcheck="false" placeholder="xxxxx.yyyyy.zzzzz"></textarea>
+            <div class="rep-row">
+              <button id="jwt-decode" data-i18n="jwt.decode">Çöz</button>
+            </div>
+            <label class="lbl">Header</label>
+            <textarea id="jwt-header" rows="4" spellcheck="false">{"alg":"HS256","typ":"JWT"}</textarea>
+            <label class="lbl">Payload</label>
+            <textarea id="jwt-payload" rows="6" spellcheck="false">{}</textarea>
+            <label class="lbl" data-i18n="jwt.secret">HS256 secret / algorithm confusion key</label>
+            <textarea id="jwt-secret" rows="2" spellcheck="false" data-i18n-ph="jwt.secretPh" placeholder="HS256 secret (algorithm confusion: PEM'i newline dahil yapıştır)"></textarea>
+            <div class="rep-row jwt-sign">
+              <button id="jwt-none" data-i18n="jwt.none">alg:none olarak üret</button>
+              <button id="jwt-hs256" data-i18n="jwt.hs256">HS256 imzala</button>
+            </div>
+            <label class="lbl"><span data-i18n="jwt.out">Çıkan token</span> <button id="jwt-copy" class="mini" data-i18n="jwt.copy">kopyala</button></label>
+            <pre id="jwt-out" class="raw"></pre>
+          </div>
+        </details>
+
+        <details class="jwt-sec">
+          <summary data-i18n="jwt.secRs">RS256 — JWK / JKU header injection</summary>
+          <div class="jwt-sec-body">
+            <div class="rep-row jwt-sign">
+              <button id="jwt-rs256" data-i18n="jwt.rs256" data-i18n-title="jwt.rs256Title" title="RSA-2048 üret, imzala ve public key'i header'a jwk olarak göm">RS256 + jwk inject</button>
+            </div>
+            <div class="rep-row jwt-sign">
+              <input id="jwt-jku" type="text" data-i18n-ph="jwt.jkuPh" placeholder="https://exploit-...net/.well-known/jwks.json" style="flex:1;min-width:260px" />
+              <button id="jwt-rs256-jku" data-i18n="jwt.rs256jku" data-i18n-title="jwt.rs256jkuTitle" title="Header'a kid+alg+jku koy (jwk GÖMME); public key'i JWK Set olarak ver">RS256 + JKU</button>
+            </div>
+            <p class="jwt-hint" data-i18n="jwt.rsHint">İmzalanan token yukarıdaki “Çıkan token” kutusunda görünür.</p>
+            <label class="lbl"><span data-i18n="jwt.jwks">JWK Set (jku için exploit server'a yapıştır)</span> <button id="jwt-jwks-copy" class="mini" data-i18n="jwt.copy">kopyala</button></label>
+            <textarea id="jwt-jwks" rows="5" spellcheck="false" placeholder='{"keys":[ … ]}'></textarea>
+            <label class="lbl"><span data-i18n="jwt.privkey">RSA private key (RS256 — üretilen; tekrar imzalamak için yapıştırabilirsin)</span> <button id="jwt-privkey-copy" class="mini" data-i18n="jwt.copy">kopyala</button></label>
+            <textarea id="jwt-privkey" rows="6" spellcheck="false" placeholder="-----BEGIN PRIVATE KEY----- …"></textarea>
+          </div>
+        </details>
+
+        <details class="jwt-sec">
+          <summary data-i18n="jwt.secConf">Algorithm confusion (JWK → PEM)</summary>
+          <div class="jwt-sec-body">
+            <label class="lbl" data-i18n="jwt.jwkin">jwks.json → PEM (algorithm confusion)</label>
+            <textarea id="jwt-jwk-in" rows="5" spellcheck="false" placeholder='{"keys":[{"kty":"RSA","e":"AQAB","n":"…"}]}'></textarea>
+            <div class="rep-row">
+              <button id="jwt-jwk2pem" data-i18n="jwt.jwk2pem">→ PEM</button>
+            </div>
+            <label class="lbl"><span data-i18n="jwt.pem">PUBLIC KEY (PEM)</span> <button id="jwt-pem-copy" class="mini" data-i18n="jwt.copy">kopyala</button></label>
+            <textarea id="jwt-pem" rows="6" spellcheck="false" readonly placeholder="-----BEGIN PUBLIC KEY----- …"></textarea>
+            <p class="jwt-hint" data-i18n="jwt.confHint">Çıkan PEM'i yukarıdaki “HS256 secret” kutusuna yapıştır, sonra HS256 imzala.</p>
+          </div>
+        </details>
+
+        <details class="jwt-sec">
+          <summary data-i18n="jwt.secMr">Modulus recovery — sig2n (açık key yok)</summary>
+          <div class="jwt-sec-body">
+            <label class="lbl" data-i18n="jwt.mr">Modulus recovery — açık key yok (aynı sunucudan 2 JWT → public key)</label>
+            <textarea id="jwt-mr-1" rows="3" spellcheck="false" data-i18n-ph="jwt.mr1Ph" placeholder="1. JWT (aynı sunucudan)"></textarea>
+            <textarea id="jwt-mr-2" rows="3" spellcheck="false" data-i18n-ph="jwt.mr2Ph" placeholder="2. JWT (farklı, aynı sunucudan)"></textarea>
+            <div class="rep-row">
+              <button id="jwt-mr-go" data-i18n="jwt.mrGo">PUBLIC KEY TÜRET</button>
+              <span id="jwt-mr-state" class="hint"></span>
+            </div>
+            <div id="jwt-mr-results"></div>
+          </div>
+        </details>
       </div>
     </section>
   </main>

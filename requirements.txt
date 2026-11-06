@@ -6,3 +6,4 @@ cryptography>=42
 h2>=4,<5
 pywebview[qt]>=5,<7
 mcp>=2,<3
+gmpy2>=2.1

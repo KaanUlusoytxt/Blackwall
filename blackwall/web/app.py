@@ -31,7 +31,7 @@ MAX_JOBS = 20              # number of jobs kept in memory
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-app = FastAPI(title="Blackwall", version="0.2.0")
+app = FastAPI(title="Blackwall", version="0.3.0")
 
 
 @app.on_event("startup")
@@ -74,6 +74,8 @@ _ERR_EN_PREFIX = {
     "Tarayıcı başlatılamadı: ": "Failed to launch browser: ",
     "JWT çözülemedi: ": "JWT decode failed: ",
     "İmzalama başarısız: ": "Signing failed: ",
+    "JWK→PEM dönüşümü başarısız: ": "JWK→PEM conversion failed: ",
+    "Modülüs türetme başarısız: ": "Modulus recovery failed: ",
 }
 _ERR_RE = (
     (re.compile(r"^Toplam istek sayısı (\d+), üst sınır (\d+)\. "
@@ -265,9 +267,22 @@ class JwtDecodeRequest(BaseModel):
 
 class JwtSignRequest(BaseModel):
     payload: object
-    alg: str = "HS256"           # "none" | "HS256"
+    alg: str = "HS256"           # "none" | "HS256" | "RS256"
     secret: str = ""
-    header: Optional[dict] = None  # optional extra header fields
+    header: Optional[dict] = None   # optional extra header fields
+    private_key_pem: str = ""       # RS256: reuse an RSA private key (PEM); empty = generate
+    jku: str = ""                   # RS256: if set, use jku header injection (no embedded jwk)
+
+
+class Jwk2PemRequest(BaseModel):
+    jwk: str   # a JWK or JWK Set, as pasted (JSON text)
+
+
+class ModulusRecoverRequest(BaseModel):
+    token1: str
+    token2: str
+    payload: object = None          # payload for the demo HS256 test tokens
+    header: Optional[dict] = None   # header for the demo HS256 test tokens
 
 
 @app.post("/api/jwt/decode")
@@ -286,9 +301,32 @@ def api_jwt_sign(reqdata: JwtSignRequest):
             alg=reqdata.alg,
             secret=reqdata.secret,
             extra_header=reqdata.header,
+            private_key_pem=reqdata.private_key_pem,
+            jku=reqdata.jku,
         )
     except Exception as exc:
         raise HTTPException(400, f"İmzalama başarısız: {exc}")
+
+
+@app.post("/api/jwt/jwk2pem")
+def api_jwt_jwk2pem(reqdata: Jwk2PemRequest):
+    try:
+        return tools.jwk_to_pem(reqdata.jwk)
+    except Exception as exc:
+        raise HTTPException(400, f"JWK→PEM dönüşümü başarısız: {exc}")
+
+
+@app.post("/api/jwt/recover-modulus")
+def api_jwt_recover_modulus(reqdata: ModulusRecoverRequest):
+    try:
+        return tools.recover_rsa_modulus(
+            reqdata.token1,
+            reqdata.token2,
+            payload=reqdata.payload,
+            extra_header=reqdata.header,
+        )
+    except Exception as exc:
+        raise HTTPException(400, f"Modülüs türetme başarısız: {exc}")
 
 
 # ---------------------------------------------------------------------------

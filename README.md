@@ -25,7 +25,7 @@ It runs either as a **desktop app** (its own window via PyWebView) or **headless
 - **Intercepting proxy + HTTP history** — all HTTP(S) flows captured to SQLite, searchable/filterable history table.
 - **Repeater** — edit and resend any request; **tabbed**, each tab keeps its own request/response.
 - **Intruder** — `§marker§` based attacks with **sniper / pitchfork / cluster bomb**, payload lists and generators (number ranges, charsets), concurrency, sortable/filterable results, and **grep-match** (flag responses containing given strings).
-- **Decoder / JWT / Inspector** — multi-layer encode/decode (base64, URL, HTML, hex, ASCII) + MD5/SHA hashing; JWT decode, `alg:none` forge, and local HS256 signing; request Inspector (query params, cookies, headers). All offline.
+- **Decoder / JWT / Inspector** — multi-layer encode/decode (base64, URL, HTML, hex, ASCII) + MD5/SHA hashing; request Inspector (query params, cookies, headers). The **JWT** tab covers the PortSwigger JWT attack chain: decode, `alg:none` forge, HS256 signing, **RS256 + embedded JWK** and **RS256 + JKU** header injection, **algorithm confusion** (JWK→PEM so an RSA public key can be used as the HS256 secret), and **modulus recovery** (derive the server's RSA public key from two tokens, sig2n — no exposed key needed). All offline.
 - **OAST / out-of-band** — two pure-Python backends (no external binary), selectable in the OAST tab:
   - **interactsh** — registers with an RSA key, polls for DNS/HTTP interactions, decrypts them locally. Point it at the public server (`oast.pro`, …) or your own interactsh instance.
   - **Burp Collaborator** — speaks the public [oastify.com](https://oastify.com) protocol: generates `*.oastify.com` payloads and polls for DNS/HTTP(S) interactions. Each generated payload can carry a note so an incoming interaction is attributed back to the request that triggered it; the **Repeater** can inject a fresh OOB payload into a request in one click.
@@ -136,7 +136,8 @@ All installed from `requirements.txt`. Blackwall itself is MIT-licensed; the lib
 | [uvicorn](https://github.com/encode/uvicorn) | ASGI server | BSD-3-Clause |
 | [httpx](https://github.com/encode/httpx) | HTTP client (Repeater/Intruder send path) | BSD-3-Clause |
 | [h2](https://github.com/python-hyper/h2) | HTTP/2 framing (Raw & Race) | MIT |
-| [cryptography](https://github.com/pyca/cryptography) | RSA/AES for the OAST client | Apache-2.0 / BSD |
+| [cryptography](https://github.com/pyca/cryptography) | RSA/AES for the OAST client & JWT signing | Apache-2.0 / BSD |
+| [gmpy2](https://github.com/aleaxit/gmpy) | Fast big-integer GCD for JWT modulus recovery (sig2n) | LGPL-3.0 |
 | [pywebview](https://github.com/r0x0r/pywebview) | Desktop window (Qt/QtWebEngine backend) | BSD-3-Clause |
 
 The interactsh protocol is implemented from scratch in pure Python; no ProjectDiscovery binary is bundled. The public Burp Collaborator (oastify.com) protocol is closed-source; Blackwall's client was ported from the clean-room, reverse-engineered reference [OAST-Community](https://github.com/Groppoxx/OAST-Community) (MIT) — no Burp Suite code is used.

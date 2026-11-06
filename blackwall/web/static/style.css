@@ -378,3 +378,24 @@ main::after { bottom: 2px; left: 2px; border-right: none; border-top: none; }
 #oast-tbody tr.oast-matched td:first-child { color: var(--ok); }
 #oast-table td.p-http { color: var(--warn); }
 #oast-table td.p-dns { color: var(--accent); }
+
+/* JWT tab: airy, grouped, scrollable layout (block flow so the pane scrolls
+   naturally and textareas aren't squeezed by the flex column). */
+#pane-jwt.active { display: block; }
+#pane-jwt textarea { width: 100%; resize: vertical; }
+#pane-jwt #jwt-out { min-height: 60px; }
+.jwt-sec { border: 1px solid var(--border); border-left: 2px solid var(--edge);
+  margin: 0 0 12px; background: rgba(255,42,42,0.02); }
+.jwt-sec > summary { cursor: pointer; padding: 10px 12px; list-style: none;
+  font-family: var(--hud); font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; color: #d98a8a; user-select: none; }
+.jwt-sec > summary::-webkit-details-marker { display: none; }
+.jwt-sec > summary::before { content: "\25B8"; color: var(--accent); margin-right: 8px; }
+.jwt-sec[open] > summary::before { content: "\25BE"; }
+.jwt-sec[open] > summary { border-bottom: 1px solid var(--border);
+  background: rgba(255,42,42,0.045); }
+.jwt-sec > summary:hover { color: var(--accent); }
+.jwt-sec-body { padding: 4px 12px 14px; }
+.jwt-hint { color: var(--muted); font-size: 11px; margin: 8px 0 2px; }
+#jwt-mr-results .mr-cand { border: 1px solid var(--border); border-left: 2px solid var(--ok);
+  padding: 6px 10px 10px; margin: 12px 0; background: rgba(70,211,105,0.03); }

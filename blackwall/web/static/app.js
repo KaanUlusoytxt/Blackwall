@@ -430,28 +430,130 @@ function parseJsonField(sel, label) {
   catch (e) { throw new Error(t("js.invalidJson", { label, msg: e.message })); }
 }
 
-async function jwtSign(alg) {
+async function jwtSign(alg, opts = {}) {
   try {
     const payload = parseJsonField("#jwt-payload", "Payload");
     let header = {};
     try { header = parseJsonField("#jwt-header", "Header"); } catch { header = {}; }
+    const body = { payload, alg, secret: $("#jwt-secret").value, header };
+    // RS256: send the private key already in the box so repeated signs reuse it.
+    if (alg === "RS256") {
+      body.private_key_pem = $("#jwt-privkey").value.trim();
+      if (opts.jku) {
+        const jku = $("#jwt-jku").value.trim();
+        if (!jku) { $("#jwt-out").textContent = t("js.errPrefix") + t("js.jwtJkuNeeded"); return; }
+        body.jku = jku;
+      }
+    }
     const res = await fetch("/api/jwt/sign", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ payload, alg, secret: $("#jwt-secret").value, header }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) { $("#jwt-out").textContent = t("js.errPrefix") + (data.detail || JSON.stringify(data)); return; }
     $("#jwt-out").textContent = data.token;
     $("#jwt-token").value = data.token;
+    if (data.private_key) $("#jwt-privkey").value = data.private_key;
+    if (data.jwks) $("#jwt-jwks").value = JSON.stringify(data.jwks, null, 2);
   } catch (e) {
     $("#jwt-out").textContent = t("js.errPrefix") + e.message;
   }
 }
 
+// JWK -> PEM (algorithm confusion): paste the server's JWK/JWK Set, get the RSA
+// public key as PEM to use as the HS256 HMAC key.
+async function jwkToPem() {
+  const txt = $("#jwt-jwk-in").value.trim();
+  if (!txt) { $("#jwt-pem").value = ""; return; }
+  try {
+    const res = await fetch("/api/jwt/jwk2pem", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jwk: txt }),
+    });
+    const data = await res.json();
+    if (!res.ok) { $("#jwt-pem").value = t("js.errPrefix") + (data.detail || JSON.stringify(data)); return; }
+    $("#jwt-pem").value = data.pem;
+  } catch (e) {
+    $("#jwt-pem").value = t("js.errPrefix") + e.message;
+  }
+}
+
+// Modulus recovery (no exposed key): recover the server's RSA public key from
+// two RS256 JWTs (sig2n), then show PEM candidates + a demo HS256 token for each.
+function mrCandidateBlock(cand, index) {
+  const wrap = document.createElement("div");
+  wrap.className = "mr-cand";
+
+  const head = document.createElement("div");
+  head.className = "lbl";
+  head.textContent = t("js.mrCand", { i: index + 1, bits: cand.bits, e: cand.e });
+  wrap.appendChild(head);
+
+  const pemLabel = document.createElement("div");
+  pemLabel.className = "lbl";
+  const pemCopy = document.createElement("button");
+  pemCopy.className = "mini";
+  pemCopy.textContent = t("jwt.copy");
+  pemCopy.onclick = () => copyText(cand.pem);
+  pemLabel.append(t("jwt.pem") + " ", pemCopy);
+  wrap.appendChild(pemLabel);
+
+  const pem = document.createElement("textarea");
+  pem.rows = 6; pem.readOnly = true; pem.spellcheck = false; pem.value = cand.pem;
+  wrap.appendChild(pem);
+
+  const tokLabel = document.createElement("div");
+  tokLabel.className = "lbl";
+  const tokCopy = document.createElement("button");
+  tokCopy.className = "mini";
+  tokCopy.textContent = t("jwt.copy");
+  tokCopy.onclick = () => copyText(cand.test_token);
+  tokLabel.append(t("js.mrTest") + " ", tokCopy);
+  wrap.appendChild(tokLabel);
+
+  const tok = document.createElement("textarea");
+  tok.rows = 3; tok.readOnly = true; tok.spellcheck = false; tok.value = cand.test_token;
+  wrap.appendChild(tok);
+
+  return wrap;
+}
+
+async function recoverModulus() {
+  const t1 = $("#jwt-mr-1").value.trim(), t2 = $("#jwt-mr-2").value.trim();
+  if (!t1 || !t2) { $("#jwt-mr-state").textContent = t("js.mrNeedTwo"); return; }
+  let payload = {}; try { payload = parseJsonField("#jwt-payload", "Payload"); } catch {}
+  let header = {}; try { header = parseJsonField("#jwt-header", "Header"); } catch {}
+  $("#jwt-mr-results").innerHTML = "";
+  $("#jwt-mr-state").textContent = t("js.mrComputing");
+  const btn = $("#jwt-mr-go"); btn.disabled = true;
+  try {
+    const res = await fetch("/api/jwt/recover-modulus", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token1: t1, token2: t2, payload, header }),
+    });
+    const data = await res.json();
+    if (!res.ok) { $("#jwt-mr-state").textContent = t("js.errPrefix") + (data.detail || JSON.stringify(data)); return; }
+    if (!data.candidates || !data.candidates.length) { $("#jwt-mr-state").textContent = t("js.mrNone"); return; }
+    $("#jwt-mr-state").textContent = t("js.mrFound", { count: data.candidates.length, e: data.e });
+    data.candidates.forEach((c, i) => $("#jwt-mr-results").appendChild(mrCandidateBlock(c, i)));
+  } catch (e) {
+    $("#jwt-mr-state").textContent = t("js.errPrefix") + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 $("#jwt-decode").onclick = jwtDecode;
+$("#jwt-jwk2pem").onclick = jwkToPem;
+$("#jwt-pem-copy").onclick = () => copyText($("#jwt-pem").value);
+$("#jwt-mr-go").onclick = recoverModulus;
 $("#jwt-none").onclick = () => jwtSign("none");
 $("#jwt-hs256").onclick = () => jwtSign("HS256");
+$("#jwt-rs256").onclick = () => jwtSign("RS256");
+$("#jwt-rs256-jku").onclick = () => jwtSign("RS256", { jku: true });
 $("#jwt-copy").onclick = () => copyText($("#jwt-out").textContent);
+$("#jwt-privkey-copy").onclick = () => copyText($("#jwt-privkey").value);
+$("#jwt-jwks-copy").onclick = () => copyText($("#jwt-jwks").value);
 
 // ---- Intruder ----------------------------------------------------------
 const intr = { jobId: null, results: [], poll: null, sort: { key: "index", dir: 1 }, selIdx: null, grepTerms: [], grepFilter: {} };
